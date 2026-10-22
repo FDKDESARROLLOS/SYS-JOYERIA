@@ -5,6 +5,7 @@ use App\Http\Controllers\Auth\LoginController;
 use App\Http\Controllers\Auth\PasswordResetController;
 use App\Http\Controllers\CategoryController;
 use App\Http\Controllers\CollectionController;
+use App\Http\Controllers\InventoryController;
 use App\Http\Controllers\MaterialController;
 use App\Http\Controllers\ProductController;
 use App\Http\Controllers\ProductVariantController;
@@ -89,6 +90,30 @@ Route::middleware('auth')->group(function () {
         Route::resource('products.variants', ProductVariantController::class)
             ->except(['show']);
     });
+
+    Route::get('/inventory/stock', [InventoryController::class, 'index'])
+        ->name('inventory.stock');
+
+    Route::get('/inventory/movements', [InventoryController::class, 'movements'])
+        ->name('inventory.movements.index');
+
+    Route::get('/inventory/movements/create', [InventoryController::class, 'create'])
+        ->name('inventory.movements.create');
+
+    Route::post('/inventory/movements', [InventoryController::class, 'storeFromCreate'])
+        ->name('inventory.movements.store');
+
+    Route::post('/inventory/movements/{inventoryStock}/context', [InventoryController::class, 'storeContextualMovement'])
+        ->name('inventory.movements.context-store');
+
+    Route::get('/inventory/movements/{inventoryStock}', [InventoryController::class, 'show'])
+        ->name('inventory.movements.show');
+
+    Route::post('/inventory/movements/{inventoryStock}', [InventoryController::class, 'storeMovement'])
+        ->name('inventory.movements.variant-store');
+
+    Route::patch('/inventory/movements/{inventoryStock}/minimum-stock', [InventoryController::class, 'updateMinimumStock'])
+        ->name('inventory.minimum-stock.update');
 });
 
 Route::resource('collections', CollectionController::class)->except(['show']);
@@ -98,12 +123,6 @@ Route::resource('materials', MaterialController::class)->except(['show']);
 Route::resource('stones', StoneController::class)->except(['show']);
 
 Route::resource('sizes', SizeController::class)->except(['show']);
-
-Route::view('/inventory/stock', 'inventory.stock')->name('inventory.stock');
-
-Route::view('/inventory/movements', 'inventory.movements')->name('inventory.movements');
-
-Route::view('/inventory/movements/create', 'inventory.movements.create')->name('inventory.movements.create');
 
 Route::view('/orders', 'orders.index')->name('orders.index');
 

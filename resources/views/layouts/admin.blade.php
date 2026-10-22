@@ -9,13 +9,14 @@
         (() => {
             const savedTheme = localStorage.getItem('aurea-theme');
             const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+            const isDark = savedTheme === 'dark' || (!savedTheme && prefersDark);
 
-            if (savedTheme === 'dark' || (!savedTheme && prefersDark)) {
-                document.documentElement.classList.add('dark');
-            }
+            document.documentElement.classList.toggle('dark', isDark);
+            document.documentElement.style.colorScheme = isDark ? 'dark' : 'light';
         })();
     </script>
-
+    <link rel="stylesheet" href="{{ asset('build/assets/app-BgnIzCXW.css') }}">
+    <script src="{{ asset('build/assets/app-Dfds1csW.js') }}"></script>
     @vite(['resources/css/app.css', 'resources/js/app.js'])
     @stack('styles')
 </head>
@@ -99,8 +100,8 @@
                     [
                         'label' => 'Movimientos',
                         'icon' => 'movements',
-                        'route' => 'inventory.movements',
-                        'active' => 'inventory.movements',
+                        'route' => 'inventory.movements.index',
+                        'active' => 'inventory.movements.index',
                     ],
                 ],
             ],
@@ -113,12 +114,12 @@
                         'route' => 'settings.store',
                         'active' => 'settings.store',
                     ],
-                    // [
-                    //     'label' => 'Pagos',
-                    //     'icon' => 'payments',
-                    //     'route' => 'settings.payments',
-                    //     'active' => 'settings.payments',
-                    // ],
+                    [
+                        'label' => 'Pagos',
+                        'icon' => 'payments',
+                        'route' => 'settings.payments',
+                        'active' => 'settings.payments',
+                    ],
                     [
                         'label' => 'Envíos',
                         'icon' => 'shipping',
