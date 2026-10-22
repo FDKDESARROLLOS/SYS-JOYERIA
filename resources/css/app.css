@@ -124,6 +124,19 @@ body {
         font-size: 0.6875rem;
     }
 
+    .product-form .admin-form-input,
+    .product-form .admin-form-input-prefix {
+        font-size: 0.9375rem;
+    }
+
+    .admin-toggle-track {
+        background-color: #dfe2dc;
+    }
+
+    .peer:checked + .admin-toggle-track {
+        background-color: var(--color-aurea-gold);
+    }
+
     .admin-form-file {
         width: 100%;
         border: 1px solid #dfe2dc;
@@ -203,6 +216,14 @@ body {
     .dark .admin-form-file::file-selector-button {
         background: #4a4034;
         color: #e4c99c;
+    }
+
+    .dark .admin-toggle-track {
+        background-color: #4b4e49;
+    }
+
+    .dark .peer:checked + .admin-toggle-track {
+        background-color: var(--color-aurea-gold);
     }
 
     .dark .product-context-thumbnail-frame {

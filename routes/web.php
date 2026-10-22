@@ -6,6 +6,8 @@ use App\Http\Controllers\Auth\PasswordResetController;
 use App\Http\Controllers\CategoryController;
 use App\Http\Controllers\CollectionController;
 use App\Http\Controllers\MaterialController;
+use App\Http\Controllers\ProductController;
+use App\Http\Controllers\ProductVariantController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\SizeController;
 use App\Http\Controllers\StoneController;
@@ -73,19 +75,21 @@ Route::middleware('auth')->group(function () {
 
     Route::resource('categories', CategoryController::class)
         ->except(['show']);
+
+    Route::patch('/products/{product}/images/reorder', [ProductController::class, 'reorderImages'])
+        ->name('products.images.reorder');
+
+    Route::get('/products/code-suggestion', [ProductController::class, 'suggestCode'])
+        ->name('products.code-suggestion');
+
+    Route::resource('products', ProductController::class)
+        ->except(['show']);
+
+    Route::scopeBindings()->group(function () {
+        Route::resource('products.variants', ProductVariantController::class)
+            ->except(['show']);
+    });
 });
-
-Route::view('/products', 'products.index')->name('products.index');
-
-Route::view('/products/create', 'products.create')->name('products.create');
-
-Route::view('/products/{id}/edit', 'products.edit')->name('products.edit');
-
-Route::view('/products/{id}/variants', 'products.variants.index')->name('products.variants.index');
-
-Route::view('/products/{id}/variants/create', 'products.variants.create')->name('products.variants.create');
-
-Route::view('/products/{id}/variants/{variant}/edit', 'products.variants.edit')->name('products.variants.edit');
 
 Route::resource('collections', CollectionController::class)->except(['show']);
 

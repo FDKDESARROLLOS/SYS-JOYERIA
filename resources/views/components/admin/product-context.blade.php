@@ -10,9 +10,9 @@
     aria-labelledby="product-context-title"
 >
     <div class="product-context-thumbnail-frame">
-        @if (filled($product['image'] ?? null) && file_exists(public_path($product['image'])))
+        @if (($product['imageExists'] ?? false) && filled($product['imageUrl'] ?? null))
             <img
-                src="{{ asset($product['image']) }}"
+                src="{{ $product['imageUrl'] }}"
                 alt="{{ $product['name'] }}"
                 class="product-context-thumbnail"
             />

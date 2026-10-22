@@ -24,20 +24,26 @@
 
 <body class="min-h-screen bg-aurea-paper text-aurea-ink antialiased dark:bg-[#242624] dark:text-[#f1eee8]">
     <main class="flex min-h-screen items-center justify-center px-5 py-8 sm:px-8">
-        <div class="grid w-full max-w-5xl overflow-hidden rounded-3xl border border-aurea-border bg-white shadow-[0_18px_60px_rgba(92,72,45,0.08)] dark:bg-[#2d302e] lg:grid-cols-[.85fr_1fr]">
-            <section class="hidden bg-[#fbf9f6] p-10 dark:bg-[#343633] lg:flex lg:flex-col lg:justify-between xl:p-14" aria-label="Información de la tienda">
+        <div
+            class="grid w-full max-w-5xl overflow-hidden rounded-3xl border border-aurea-border bg-white shadow-[0_18px_60px_rgba(92,72,45,0.08)] dark:bg-[#2d302e] lg:grid-cols-[.85fr_1fr]">
+            <section class="hidden bg-[#fbf9f6] p-10 dark:bg-[#343633] lg:flex lg:flex-col lg:justify-between xl:p-14"
+                aria-label="Información de la tienda">
                 <div>
                     <div class="flex items-center gap-3">
-                        <span class="flex h-10 w-10 items-center justify-center rounded-full border border-aurea-gold text-sm font-medium text-aurea-focus">Logo</span>
+                        <span
+                            class="flex h-10 w-10 items-center justify-center rounded-full border border-aurea-gold text-sm font-medium text-aurea-focus">Logo</span>
                         <div>
-                         <p class="font-brand text-2xl tracking-[.16em] text-[#222222] dark:text-[#eeeae2]">{{ $storeName }}</p>
+                            <p class="font-brand text-2xl tracking-[.16em] text-[#222222] dark:text-[#eeeae2]">
+                                {{ $storeName }}</p>
                             <p class="text-[9px] uppercase tracking-[.3em] text-aurea-muted">Administración</p>
                         </div>
                     </div>
                     <div class="mt-24 max-w-xs">
-                        <p class="text-[10px] font-semibold uppercase tracking-[.22em] text-aurea-focus">Panel administrativo</p>
-                        <h1 class="mt-4 font-brand text-5xl leading-tight text-[#302a24] dark:text-[#f1eee8]">Una gestión clara para cada detalle.</h1>
-                        <p class="mt-5 text-sm leading-6 text-aurea-muted">Administra tu catálogo y la operación diaria de tu tienda desde un espacio pensado para trabajar con calma.</p>
+                        <p class="text-[10px] font-semibold uppercase tracking-[.22em] text-aurea-focus">Panel
+                            administrativo</p>
+                        {{-- <h1 class="mt-4 font-brand text-5xl leading-tight text-[#302a24] dark:text-[#f1eee8]">Una
+                            gestión clara para cada detalle.</h1> --}}
+                        {{-- <p class="mt-5 text-sm leading-6 text-aurea-muted">Administra tu catálogo y la operación diaria de tu tienda desde un espacio pensado para trabajar con calma.</p> --}}
                     </div>
                 </div>
                 <p class="text-xs text-[#a39a8e]">Acceso exclusivo para el equipo administrativo.</p>
@@ -47,9 +53,11 @@
                 <div class="w-full max-w-md">
                     <div class="mb-8 lg:hidden">
                         <div class="flex items-center gap-3">
-                            <span class="flex h-10 w-10 items-center justify-center rounded-full border border-aurea-gold text-sm font-medium text-aurea-focus">Logo</span>
+                            <span
+                                class="flex h-10 w-10 items-center justify-center rounded-full border border-aurea-gold text-sm font-medium text-aurea-focus">Logo</span>
                             <div>
-                            <p class="font-brand text-2xl tracking-[.16em] text-[#222222] dark:text-[#eeeae2]">{{ $storeName }}</p>
+                                <p class="font-brand text-2xl tracking-[.16em] text-[#222222] dark:text-[#eeeae2]">
+                                    {{ $storeName }}</p>
                                 <p class="text-[9px] uppercase tracking-[.3em] text-aurea-muted">Administración</p>
                             </div>
                         </div>
