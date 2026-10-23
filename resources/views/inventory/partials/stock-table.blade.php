@@ -2,6 +2,7 @@
     'inventoryRows',
     'inventoryStocks',
     'showStatus' => true,
+    'showCatalogStatus' => true,
 ])
 
 <div class="hidden overflow-x-auto sm:block">
@@ -9,15 +10,18 @@
         <caption class="sr-only">Existencias actuales de productos y variantes</caption>
         <thead class="bg-[#fbfbf9] text-[10px] uppercase tracking-wider text-[#9ca49e]">
             <tr>
-                <th scope="col" class="px-5 py-3 font-medium sm:px-6">Producto</th>
-                <th scope="col" class="px-3 py-3 font-medium">Características</th>
-                <th scope="col" class="px-3 py-3 font-medium">SKU</th>
-                <th scope="col" class="px-3 py-3 font-medium">Categoría</th>
-                <th scope="col" class="px-3 py-3 font-medium">Stock actual</th>
-                @if ($showStatus)
-                    <th scope="col" class="px-3 py-3 font-medium">Estado</th>
+                <th scope="col" class="w-[18%] px-5 py-3 font-medium sm:px-6">Producto</th>
+                <th scope="col" class="w-[24%] px-3 py-3 font-medium">Características</th>
+                <th scope="col" class="w-[14%] px-3 py-3 font-medium">SKU</th>
+                <th scope="col" class="w-[11%] px-3 py-3 font-medium">Categoría</th>
+                <th scope="col" class="w-[8%] whitespace-nowrap px-3 py-3 font-medium">Stock actual</th>
+                @if ($showCatalogStatus)
+                    <th scope="col" class="w-[11%] whitespace-nowrap px-3 py-3 font-medium">Estado catálogo</th>
                 @endif
-                <th scope="col" class="px-5 py-3 text-right font-medium sm:px-6">Acciones</th>
+                @if ($showStatus)
+                    <th scope="col" class="w-[11%] whitespace-nowrap px-3 py-3 font-medium">Estado inventario</th>
+                @endif
+                <th scope="col" class="w-[13%] whitespace-nowrap px-5 py-3 text-right font-medium sm:px-6">Acciones</th>
             </tr>
         </thead>
         <tbody class="divide-y divide-[#f0f1ed]">
@@ -41,14 +45,19 @@
                         class="px-3 py-4 font-medium {{ $inventoryRow['current_stock'] === 0 ? 'text-aurea-danger' : 'text-[#343d37]' }}">
                         {{ $inventoryRow['current_stock'] }}
                     </td>
+                    @if ($showCatalogStatus)
+                        <td class="whitespace-nowrap px-3 py-4 text-xs">
+                            <span class="font-medium {{ $inventoryRow['catalog_status_class'] }}">{{ $inventoryRow['catalog_status'] }}</span>
+                        </td>
+                    @endif
                     @if ($showStatus)
                         <td class="px-3 py-4">
                             <x-admin.status-badge :label="$inventoryRow['stock_status']" :status-class="$inventoryRow['stock_status_class']" />
                         </td>
                     @endif
-                    <td class="px-5 py-4 text-right sm:px-6">
+                    <td class="whitespace-nowrap px-5 py-4 text-right sm:px-6">
                         <a href="{{ route('inventory.movements.show', $inventoryRow['inventory_stock_id']) }}"
-                            class="aurea-focus rounded-md px-2 py-1.5 text-xs font-medium text-aurea-muted hover:bg-aurea-paper hover:text-aurea-focus"
+                            class="aurea-focus whitespace-nowrap rounded-md px-2 py-1.5 text-xs font-medium text-aurea-muted hover:bg-aurea-paper hover:text-aurea-focus"
                             aria-label="Ver movimientos de {{ $inventoryRow['product'] }} {{ $inventoryRow['variant'] }}">
                             Ver movimientos
                         </a>
@@ -90,10 +99,16 @@
                     <dt class="text-[#929b94]">Stock</dt>
                     <dd class="mt-0.5 font-medium text-[#343d37]">{{ $inventoryRow['current_stock'] }}</dd>
                 </div>
+                @if ($showCatalogStatus)
+                    <div>
+                        <dt class="text-[#929b94]">Catálogo</dt>
+                        <dd class="mt-0.5 {{ $inventoryRow['catalog_status_class'] }}">{{ $inventoryRow['catalog_status'] }}</dd>
+                    </div>
+                @endif
             </dl>
             <div class="mt-3 flex justify-end">
                 <a href="{{ route('inventory.movements.show', $inventoryRow['inventory_stock_id']) }}"
-                    class="aurea-focus rounded-md px-2 py-1.5 text-xs font-medium text-aurea-muted hover:bg-aurea-paper hover:text-aurea-focus"
+                    class="aurea-focus whitespace-nowrap rounded-md px-2 py-1.5 text-xs font-medium text-aurea-muted hover:bg-aurea-paper hover:text-aurea-focus"
                     aria-label="Ver movimientos de {{ $inventoryRow['product'] }} {{ $inventoryRow['variant'] }}">
                     Ver movimientos
                 </a>

@@ -320,6 +320,266 @@ class ProductTest extends TestCase
         ]);
     }
 
+    public function test_product_creation_generates_one_base_variant_and_inventory_stock(): void
+    {
+        $admin = User::factory()->create();
+        $category = $this->createCategory();
+        $payload = $this->productPayload($category, null, null, null, [
+            'status' => 'active',
+            'code' => 'BASE-PRODUCT-001',
+            'base_sku' => 'BASE-PRODUCT-001',
+        ]);
+
+        $this->actingAs($admin)
+            ->post(route('products.store'), $payload)
+            ->assertRedirect(route('products.index'));
+
+        $product = Product::query()->where('code', 'BASE-PRODUCT-001')->firstOrFail();
+        $variant = $product->variants()->firstOrFail();
+
+        $this->assertSame(1, $product->variants()->count());
+        $this->assertSame('BASE-PRODUCT-001', $variant->sku);
+        $this->assertSame('active', $variant->status);
+        $this->assertNull($variant->size_id);
+        $this->assertNull($variant->material_id);
+        $this->assertNull($variant->stone_id);
+        $this->assertNull($variant->karat);
+        $this->assertNull($variant->metal_color);
+        $this->assertNull($variant->cost);
+        $this->assertNull($variant->price);
+        $this->assertNull($variant->sale_price);
+        $this->assertDatabaseHas('inventory_stocks', [
+            'product_variant_id' => $variant->id,
+            'current_stock' => 0,
+            'minimum_stock' => 0,
+        ]);
+    }
+
+    public function test_base_variant_status_matches_the_product_status(): void
+    {
+        $admin = User::factory()->create();
+        $category = $this->createCategory();
+
+        foreach (['active', 'draft', 'inactive'] as $status) {
+            $code = 'BASE-STATUS-'.strtoupper($status);
+            $this->actingAs($admin)
+                ->post(route('products.store'), $this->productPayload($category, null, null, null, [
+                    'code' => $code,
+                    'base_sku' => $code,
+                    'status' => $status,
+                ]))
+                ->assertRedirect(route('products.index'));
+
+            $product = Product::query()->where('code', $code)->firstOrFail();
+
+            $this->assertSame($status, $product->variants()->firstOrFail()->status);
+        }
+    }
+
+    public function test_product_status_changes_sync_only_the_automatic_base_variant(): void
+    {
+        $admin = User::factory()->create();
+        $category = $this->createCategory();
+        $payload = $this->productPayload($category, null, null, null, [
+            'code' => 'SYNC-BASE-001',
+            'base_sku' => 'SYNC-BASE-001',
+            'status' => 'draft',
+        ]);
+
+        $this->actingAs($admin)
+            ->post(route('products.store'), $payload)
+            ->assertRedirect();
+
+        $product = Product::query()->where('code', 'SYNC-BASE-001')->firstOrFail();
+        $baseVariant = $product->variants()->firstOrFail();
+        $additionalVariant = ProductVariant::create([
+            'product_id' => $product->id,
+            'sku' => 'SYNC-ADDITIONAL-001',
+            'status' => 'inactive',
+        ]);
+        $additionalVariant->inventoryStock()->create();
+        $stock = $baseVariant->inventoryStock()->firstOrFail();
+        $stock->update(['current_stock' => 3]);
+        InventoryMovement::create([
+            'inventory_stock_id' => $stock->id,
+            'type' => 'Entrada',
+            'quantity' => 3,
+            'previous_stock' => 0,
+            'resulting_stock' => 3,
+            'reason' => 'Existencia inicial',
+            'movement_at' => now(),
+        ]);
+
+        foreach (['active', 'draft', 'inactive'] as $status) {
+            $this->actingAs($admin)
+                ->patch(route('products.update', $product), [
+                    ...$payload,
+                    'status' => $status,
+                    'code' => $product->code,
+                    'base_sku' => $product->base_sku,
+                ])
+                ->assertRedirect(route('products.index'));
+
+            $product->refresh();
+            $baseVariant->refresh();
+            $additionalVariant->refresh();
+            $stock->refresh();
+
+            $this->assertSame($status, $baseVariant->status);
+            $this->assertSame('inactive', $additionalVariant->status);
+            $this->assertSame(3, $stock->current_stock);
+            $this->assertSame(1, InventoryMovement::where('inventory_stock_id', $stock->id)->count());
+        }
+    }
+
+    public function test_product_status_does_not_sync_a_base_variant_with_overrides(): void
+    {
+        $admin = User::factory()->create();
+        $category = $this->createCategory();
+        $payload = $this->productPayload($category, null, null, null, [
+            'code' => 'SYNC-OVERRIDE-001',
+            'base_sku' => 'SYNC-OVERRIDE-001',
+            'status' => 'draft',
+        ]);
+
+        $this->actingAs($admin)
+            ->post(route('products.store'), $payload)
+            ->assertRedirect();
+
+        $product = Product::query()->where('code', 'SYNC-OVERRIDE-001')->firstOrFail();
+        $baseVariant = $product->variants()->firstOrFail();
+        $baseVariant->update(['metal_color' => 'Rosa']);
+
+        $this->actingAs($admin)
+            ->patch(route('products.update', $product), [
+                ...$payload,
+                'status' => 'active',
+                'code' => $product->code,
+                'base_sku' => $product->base_sku,
+            ])
+            ->assertRedirect(route('products.index'));
+
+        $this->assertSame('draft', $baseVariant->refresh()->status);
+    }
+
+    public function test_active_base_variant_with_zero_stock_appears_as_out_of_stock_in_inventory(): void
+    {
+        $admin = User::factory()->create();
+        $category = $this->createCategory();
+        $payload = $this->productPayload($category, null, null, null, [
+            'code' => 'ACTIVE-BASE-STOCK-001',
+            'base_sku' => 'ACTIVE-BASE-STOCK-001',
+            'status' => 'active',
+        ]);
+
+        $this->actingAs($admin)
+            ->post(route('products.store'), $payload)
+            ->assertRedirect();
+
+        $product = Product::query()->where('code', 'ACTIVE-BASE-STOCK-001')->firstOrFail();
+        $stock = $product->variants()->firstOrFail()->inventoryStock()->firstOrFail();
+
+        $this->actingAs($admin)
+            ->get(route('inventory.stock'))
+            ->assertViewHas('inventoryRows', function ($rows) use ($stock): bool {
+                $row = $rows->firstWhere('inventory_stock_id', $stock->id);
+
+                return $row !== null
+                    && $row['current_stock'] === 0
+                    && $row['stock_status'] === 'Sin stock';
+            });
+    }
+
+    public function test_updating_a_product_does_not_create_another_base_variant(): void
+    {
+        $admin = User::factory()->create();
+        $category = $this->createCategory();
+        $payload = $this->productPayload($category, null, null, null, [
+            'status' => 'active',
+            'code' => 'BASE-PRODUCT-002',
+            'base_sku' => 'BASE-PRODUCT-002',
+        ]);
+
+        $this->actingAs($admin)
+            ->post(route('products.store'), $payload)
+            ->assertRedirect();
+
+        $product = Product::query()->where('code', 'BASE-PRODUCT-002')->firstOrFail();
+
+        $this->actingAs($admin)
+            ->patch(route('products.update', $product), [
+                ...$payload,
+                'name' => 'Producto base actualizado',
+                'code' => $product->code,
+                'base_sku' => $product->base_sku,
+            ])
+            ->assertRedirect(route('products.index'));
+
+        $this->assertSame(1, $product->variants()->count());
+        $this->assertSame(1, InventoryStock::whereIn('product_variant_id', $product->variants()->pluck('id'))->count());
+    }
+
+    public function test_product_creation_rolls_back_the_base_variant_and_stock_when_the_transaction_fails(): void
+    {
+        $admin = User::factory()->create();
+        $category = $this->createCategory();
+        File::ensureDirectoryExists($this->testUploadDirectory);
+        $blockedPath = $this->testUploadDirectory.'/blocked-path';
+        File::put($blockedPath, 'not a directory');
+        config(['aurea.uploads.products_path' => $blockedPath]);
+
+        try {
+            $this->actingAs($admin)
+                ->post(route('products.store'), $this->productPayload($category, null, null, null, [
+                    'code' => 'ROLLBACK-BASE-001',
+                    'base_sku' => 'ROLLBACK-BASE-001',
+                ]))
+                ->assertServerError();
+        } finally {
+            File::delete($blockedPath);
+            config([
+                'aurea.uploads.products_path' => $this->testUploadDirectory,
+                'aurea.uploads.products_url' => $this->testUploadUrlPrefix,
+            ]);
+        }
+
+        $this->assertDatabaseMissing('products', ['code' => 'ROLLBACK-BASE-001']);
+        $this->assertDatabaseCount('product_variants', 0);
+        $this->assertDatabaseCount('inventory_stocks', 0);
+    }
+
+    public function test_base_variant_backfill_only_regularizes_products_without_variants(): void
+    {
+        $category = $this->createCategory();
+        $productWithoutVariants = Product::create($this->productPayload($category, null, null, null, [
+            'name' => 'Producto para regularizar',
+            'code' => 'BACKFILL-001',
+            'base_sku' => 'BACKFILL-001',
+        ]));
+        $productWithVariant = Product::create($this->productPayload($category, null, null, null, [
+            'name' => 'Producto ya configurado',
+            'code' => 'BACKFILL-002',
+            'base_sku' => 'BACKFILL-002',
+        ]));
+        $existingVariant = ProductVariant::create([
+            'product_id' => $productWithVariant->id,
+            'sku' => 'BACKFILL-002',
+            'status' => 'draft',
+        ]);
+        $existingVariant->inventoryStock()->create();
+
+        $this->artisan('products:backfill-base-variants', ['--apply' => true])
+            ->assertExitCode(0);
+
+        $this->assertSame(1, $productWithoutVariants->variants()->count());
+        $this->assertSame(1, $productWithVariant->variants()->count());
+        $this->assertDatabaseHas('inventory_stocks', [
+            'product_variant_id' => $productWithoutVariants->variants()->firstOrFail()->id,
+            'current_stock' => 0,
+            'minimum_stock' => 0,
+        ]);
+    }
+
     public function test_product_visibility_switches_can_be_updated_in_edit(): void
     {
         $admin = User::factory()->create();

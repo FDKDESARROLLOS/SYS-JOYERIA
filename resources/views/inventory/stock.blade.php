@@ -68,6 +68,7 @@
                 'inventoryRows' => $archivedInventoryRows,
                 'inventoryStocks' => $archivedInventoryStocks,
                 'showStatus' => false,
+                'showCatalogStatus' => false,
             ])
         </section>
     @endif

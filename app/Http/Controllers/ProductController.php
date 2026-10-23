@@ -139,6 +139,7 @@ class ProductController extends Controller
 
         DB::transaction(function () use ($request, $validated): void {
             $product = Product::create($this->normalizedProductData($validated));
+            $this->createBaseVariant($product);
             $this->syncProductStones($product, $validated);
             $this->syncProductImages($product, $request);
         });
@@ -179,6 +180,11 @@ class ProductController extends Controller
 
         DB::transaction(function () use ($product, $request, $validated): void {
             $product->update($this->normalizedProductData($validated, $product));
+
+            if ($product->wasChanged('status')) {
+                $this->synchronizeBaseVariantStatus($product);
+            }
+
             $this->syncProductStones($product, $validated);
             $this->syncProductImages($product, $request);
         });
@@ -497,6 +503,66 @@ class ProductController extends Controller
         }
 
         return $validated;
+    }
+
+    private function createBaseVariant(Product $product): void
+    {
+        $variant = $product->variants()->create([
+            'sku' => $this->baseVariantSku($product),
+            'size_id' => null,
+            'material_id' => null,
+            'stone_id' => null,
+            'karat' => null,
+            'metal_color' => null,
+            'cost' => null,
+            'price' => null,
+            'sale_price' => null,
+            'status' => $product->status,
+        ]);
+
+        $variant->inventoryStock()->create([
+            'current_stock' => 0,
+            'minimum_stock' => 0,
+        ]);
+    }
+
+    private function baseVariantSku(Product $product): string
+    {
+        $baseSku = (string) $product->base_sku;
+        $candidate = $baseSku;
+        $suffix = 2;
+
+        while (ProductVariant::withTrashed()->where('sku', $candidate)->exists()) {
+            $candidate = $baseSku.'-'.$suffix;
+            $suffix++;
+        }
+
+        return $candidate;
+    }
+
+    private function synchronizeBaseVariantStatus(Product $product): void
+    {
+        $baseVariant = $product->variants()
+            ->where('sku', $product->base_sku)
+            ->first();
+
+        if ($baseVariant === null || ! $this->isAutomaticBaseVariant($baseVariant)) {
+            return;
+        }
+
+        $baseVariant->update(['status' => $product->status]);
+    }
+
+    private function isAutomaticBaseVariant(ProductVariant $variant): bool
+    {
+        return $variant->size_id === null
+            && $variant->material_id === null
+            && $variant->stone_id === null
+            && $variant->karat === null
+            && $variant->metal_color === null
+            && $variant->cost === null
+            && $variant->price === null
+            && $variant->sale_price === null;
     }
 
     /**

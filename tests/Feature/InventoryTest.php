@@ -5,8 +5,12 @@ namespace Tests\Feature;
 use App\Models\Category;
 use App\Models\InventoryMovement;
 use App\Models\InventoryStock;
+use App\Models\Material;
 use App\Models\Product;
+use App\Models\ProductStone;
 use App\Models\ProductVariant;
+use App\Models\Size;
+use App\Models\Stone;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
@@ -91,6 +95,29 @@ class InventoryTest extends TestCase
                     && collect($excluded)->every(fn (InventoryStock $stock): bool => ! $stocks->contains('id', $stock->id));
             });
         }
+    }
+
+    public function test_inventory_index_filters_by_catalog_status_without_changing_stock_rules(): void
+    {
+        $admin = User::factory()->create();
+        $category = $this->createCategory();
+        $active = $this->createStock($category, ['sku' => 'CATALOG-ACTIVE']);
+        $draft = $this->createStock($category, [
+            'sku' => 'CATALOG-DRAFT',
+            'product_status' => 'draft',
+        ]);
+        $inactive = $this->createStock($category, [
+            'sku' => 'CATALOG-INACTIVE',
+            'product_status' => 'inactive',
+        ]);
+
+        $this->actingAs($admin)
+            ->get(route('inventory.stock', ['catalog_status' => 'draft']))
+            ->assertViewHas('inventoryStocks', function ($stocks) use ($active, $draft, $inactive): bool {
+                return $stocks->contains('id', $draft->id)
+                    && ! $stocks->contains('id', $active->id)
+                    && ! $stocks->contains('id', $inactive->id);
+            });
     }
 
     public function test_inventory_hides_minimum_stock_and_stock_bajo_from_the_interface(): void
@@ -211,7 +238,7 @@ class InventoryTest extends TestCase
             });
     }
 
-    public function test_inventory_active_list_excludes_non_commercial_product_and_variant_states(): void
+    public function test_inventory_lists_all_non_deleted_commercial_states_and_allows_their_movements(): void
     {
         $admin = User::factory()->create();
         $category = $this->createCategory();
@@ -223,10 +250,12 @@ class InventoryTest extends TestCase
         $inactiveProduct = $this->createStock($category, [
             'sku' => 'INACTIVE-PRODUCT',
             'product_status' => 'inactive',
+            'current_stock' => 2,
         ]);
         $draftVariant = $this->createStock($category, [
             'sku' => 'DRAFT-VARIANT',
             'variant_status' => 'draft',
+            'current_stock' => 5,
         ]);
         $inactiveVariant = $this->createStock($category, [
             'sku' => 'INACTIVE-VARIANT',
@@ -239,35 +268,120 @@ class InventoryTest extends TestCase
             ->assertOk()
             ->assertViewHas('inventoryRows', function ($rows) use ($active, $draftProduct, $inactiveProduct, $draftVariant, $inactiveVariant): bool {
                 return $rows->contains('inventory_stock_id', $active->id)
-                    && ! $rows->contains('inventory_stock_id', $draftProduct->id)
-                    && ! $rows->contains('inventory_stock_id', $inactiveProduct->id)
-                    && ! $rows->contains('inventory_stock_id', $draftVariant->id)
-                    && ! $rows->contains('inventory_stock_id', $inactiveVariant->id);
+                    && $rows->contains('inventory_stock_id', $draftProduct->id)
+                    && $rows->contains('inventory_stock_id', $inactiveProduct->id)
+                    && $rows->contains('inventory_stock_id', $draftVariant->id)
+                    && $rows->contains('inventory_stock_id', $inactiveVariant->id);
             })
             ->assertSee('ACTIVE-COMMERCIAL')
-            ->assertDontSee('DRAFT-PRODUCT')
-            ->assertDontSee('INACTIVE-PRODUCT')
-            ->assertDontSee('DRAFT-VARIANT')
-            ->assertDontSee('INACTIVE-VARIANT');
+            ->assertSee('DRAFT-PRODUCT')
+            ->assertSee('INACTIVE-PRODUCT')
+            ->assertSee('DRAFT-VARIANT')
+            ->assertSee('INACTIVE-VARIANT')
+            ->assertSee('Borrador')
+            ->assertSee('Inactivo')
+            ->assertSee('Sin stock')
+            ->assertSee('Disponible');
 
         $selectorResponse = $this->actingAs($admin)->get(route('inventory.movements.create'));
 
         $selectorResponse
             ->assertSee('ACTIVE-COMMERCIAL')
-            ->assertDontSee('DRAFT-PRODUCT')
-            ->assertDontSee('INACTIVE-PRODUCT')
-            ->assertDontSee('DRAFT-VARIANT')
-            ->assertDontSee('INACTIVE-VARIANT');
+            ->assertSee('DRAFT-PRODUCT')
+            ->assertSee('INACTIVE-PRODUCT')
+            ->assertSee('DRAFT-VARIANT')
+            ->assertSee('INACTIVE-VARIANT');
 
         $this->actingAs($admin)
             ->post(route('inventory.movements.store'), $this->movementPayload([
                 'inventory_stock_id' => $inactiveVariant->id,
             ]))
-            ->assertNotFound();
+            ->assertRedirect(route('inventory.movements.show', $inactiveVariant));
 
-        $this->assertDatabaseMissing('inventory_movements', [
+        $this->assertDatabaseHas('inventory_movements', [
             'inventory_stock_id' => $inactiveVariant->id,
         ]);
+
+        $this->actingAs($admin)
+            ->post(route('inventory.movements.store'), $this->movementPayload([
+                'inventory_stock_id' => $draftProduct->id,
+            ]))
+            ->assertRedirect(route('inventory.movements.show', $draftProduct));
+
+        $this->assertDatabaseHas('inventory_movements', [
+            'inventory_stock_id' => $draftProduct->id,
+        ]);
+    }
+
+    public function test_inventory_uses_one_effective_catalog_status_for_product_and_variant(): void
+    {
+        $admin = User::factory()->create();
+        $category = $this->createCategory();
+        $cases = [
+            ['product_status' => 'active', 'variant_status' => 'active', 'expected' => 'Activo'],
+            ['product_status' => 'draft', 'variant_status' => 'active', 'expected' => 'Borrador'],
+            ['product_status' => 'active', 'variant_status' => 'draft', 'expected' => 'Borrador'],
+            ['product_status' => 'inactive', 'variant_status' => 'active', 'expected' => 'Inactivo'],
+            ['product_status' => 'active', 'variant_status' => 'inactive', 'expected' => 'Inactivo'],
+            ['product_status' => 'draft', 'variant_status' => 'inactive', 'expected' => 'Borrador'],
+        ];
+
+        $stocks = collect($cases)->map(
+            fn (array $case): InventoryStock => $this->createStock($category, $case)
+        );
+
+        $response = $this->actingAs($admin)->get(route('inventory.stock'));
+
+        $response
+            ->assertOk()
+            ->assertViewHas('inventoryRows', function ($rows) use ($stocks, $cases): bool {
+                foreach ($cases as $index => $case) {
+                    $row = $rows->firstWhere('inventory_stock_id', $stocks[$index]->id);
+
+                    if ($row === null || $row['catalog_status'] !== $case['expected']) {
+                        return false;
+                    }
+                }
+
+                return true;
+            })
+            ->assertDontSee('Producto:')
+            ->assertDontSee('Variante:')
+            ->assertSee('Ver movimientos')
+            ->assertSee(route('inventory.movements.show', $stocks->first()));
+    }
+
+    public function test_inventory_shows_effective_characteristics_for_a_base_variant(): void
+    {
+        $admin = User::factory()->create();
+        $category = $this->createCategory();
+        $size = Size::create(['name' => '7', 'sort_order' => 1, 'status' => true]);
+        $material = Material::create(['name' => 'Plata', 'slug' => 'plata', 'status' => true]);
+        $stone = Stone::create(['name' => 'Zirconia', 'slug' => 'zirconia', 'status' => true]);
+        $stock = $this->createStock($category, ['sku' => 'EFFECTIVE-CHARACTERISTICS']);
+        $product = $stock->productVariant->product;
+
+        $product->update([
+            'base_size_id' => $size->id,
+            'material_id' => $material->id,
+            'karat' => 14,
+            'metal_color' => 'Blanco',
+        ]);
+        ProductStone::create([
+            'product_id' => $product->id,
+            'stone_id' => $stone->id,
+            'position' => 1,
+        ]);
+
+        $this->actingAs($admin)
+            ->get(route('inventory.stock'))
+            ->assertViewHas('inventoryRows', function ($rows) use ($stock): bool {
+                return $rows->firstWhere('inventory_stock_id', $stock->id)['variant']
+                    === 'Talla 7 / Plata / 14K / Blanco / Zirconia';
+            })
+            ->assertSee('Talla 7 / Plata / 14K / Blanco / Zirconia')
+            ->assertDontSee('heredado')
+            ->assertDontSee('variante base');
     }
 
     public function test_soft_deleted_variant_with_zero_stock_is_not_shown_in_inventory(): void

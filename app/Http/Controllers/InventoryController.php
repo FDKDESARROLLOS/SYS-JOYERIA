@@ -22,6 +22,7 @@ class InventoryController extends Controller
         $search = trim((string) $request->query('search', ''));
         $categoryId = $request->integer('category_id');
         $stockStatus = $request->query('stock_status');
+        $catalogStatus = $request->query('catalog_status');
 
         $inventoryStocks = $this->applyStockFilters(
             InventoryStock::query()->with($this->stockRelations()),
@@ -29,8 +30,13 @@ class InventoryController extends Controller
             $categoryId,
         )
             ->whereHas('productVariant.product')
-            ->whereHas('productVariant', fn ($query) => $query->where('status', 'active'))
-            ->whereHas('productVariant.product', fn ($query) => $query->where('status', 'active'))
+            ->when(in_array($catalogStatus, ['active', 'draft', 'inactive'], true), function ($query) use ($catalogStatus): void {
+                $query->where(function ($query) use ($catalogStatus): void {
+                    $query
+                        ->whereHas('productVariant', fn ($query) => $query->where('status', $catalogStatus))
+                        ->orWhereHas('productVariant.product', fn ($query) => $query->where('status', $catalogStatus));
+                });
+            })
             ->when($stockStatus === 'available', fn ($query) => $query->where('current_stock', '>', 0))
             ->when($stockStatus === 'out', fn ($query) => $query->where('current_stock', '<=', 0))
             ->orderBy('id')
@@ -61,6 +67,7 @@ class InventoryController extends Controller
                 ->get(['id', 'name', 'parent_id']),
             'selectedCategoryId' => $categoryId > 0 ? $categoryId : null,
             'selectedStockStatus' => $stockStatus,
+            'selectedCatalogStatus' => $catalogStatus,
             'inventoryRows' => $inventoryStocks->getCollection()->map(
                 fn (InventoryStock $inventoryStock): array => $this->stockRow($inventoryStock)
             ),
@@ -124,8 +131,6 @@ class InventoryController extends Controller
         $inventoryStocks = InventoryStock::query()
             ->with($this->stockRelations())
             ->whereHas('productVariant.product')
-            ->whereHas('productVariant', fn ($query) => $query->where('status', 'active'))
-            ->whereHas('productVariant.product', fn ($query) => $query->where('status', 'active'))
             ->orderBy('id')
             ->get();
 
@@ -239,7 +244,7 @@ class InventoryController extends Controller
             $stock = InventoryStock::query()
                 ->lockForUpdate()
                 ->findOrFail($inventoryStock->getKey());
-            $this->ensureStockIsCommerciallyActive($stock);
+            $this->ensureStockIsCatalogEntry($stock);
             $previousStock = (int) $stock->current_stock;
 
             if ($validated['type'] === 'Ajuste') {
@@ -404,11 +409,11 @@ class InventoryController extends Controller
         abort_unless($inventoryStock->productVariant?->product !== null, 404);
 
         if (! $includeTrashed) {
-            $this->ensureStockIsCommerciallyActive($inventoryStock);
+            $this->ensureStockIsCatalogEntry($inventoryStock);
         }
     }
 
-    private function ensureStockIsCommerciallyActive(InventoryStock $inventoryStock): void
+    private function ensureStockIsCatalogEntry(InventoryStock $inventoryStock): void
     {
         $inventoryStock->load([
             'productVariant' => fn ($query) => $query->withTrashed(),
@@ -420,11 +425,9 @@ class InventoryController extends Controller
 
         abort_unless(
             $variant !== null
-                && $product !== null
-                && ! $variant->trashed()
-                && ! $product->trashed()
-                && $variant->status === 'active'
-                && $product->status === 'active',
+            && $product !== null
+            && ! $variant->trashed()
+            && ! $product->trashed(),
             404,
         );
     }
@@ -438,6 +441,7 @@ class InventoryController extends Controller
         $product = $variant?->product;
         $currentStock = (int) $inventoryStock->current_stock;
         $isOutOfCatalog = (bool) ($variant?->trashed() || $product?->trashed());
+        [$catalogStatus, $catalogStatusClass] = $this->effectiveCatalogStatus($product, $variant);
         [$stockStatus, $stockStatusClass] = match (true) {
             $currentStock <= 0 => ['Sin stock', 'text-aurea-danger'],
             $isOutOfCatalog => ['Con existencias', 'text-[#5b8668]'],
@@ -454,10 +458,28 @@ class InventoryController extends Controller
             'current_stock' => $currentStock,
             'stock_status' => $stockStatus,
             'stock_status_class' => $stockStatusClass,
+            'catalog_status' => $catalogStatus,
+            'catalog_status_class' => $catalogStatusClass,
             'is_out_of_catalog' => $isOutOfCatalog,
             'image' => $this->imagePath($product),
             'inventory_stock_id' => $inventoryStock->id,
         ];
+    }
+
+    /**
+     * Borrador has precedence over Inactivo when the product and variant differ.
+     *
+     * @return array{0: string, 1: string}
+     */
+    private function effectiveCatalogStatus(?Product $product, ?ProductVariant $variant): array
+    {
+        $statuses = [$product?->status, $variant?->status];
+
+        return match (true) {
+            in_array('draft', $statuses, true) => ['Borrador', 'text-[#806441]'],
+            in_array('inactive', $statuses, true) => ['Inactivo', 'text-[#a27a3f]'],
+            default => ['Activo', 'text-[#5b8668]'],
+        };
     }
 
     /**
