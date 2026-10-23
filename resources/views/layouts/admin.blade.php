@@ -147,6 +147,21 @@
                 ],
             ],
         ];
+
+        if (auth()->user()?->role !== 'admin') {
+            $technicalRoutes = ['settings.errors', 'settings.errors.logs'];
+            $navigationGroups = array_values(array_filter(array_map(
+                function (array $group) use ($technicalRoutes): ?array {
+                    $items = array_values(array_filter(
+                        $group['items'],
+                        fn (array $item): bool => in_array($item['route'], $technicalRoutes, true),
+                    ));
+
+                    return $items === [] ? null : [...$group, 'items' => $items];
+                },
+                $navigationGroups,
+            )));
+        }
     @endphp
     <div class="min-h-screen">
         <div id="sidebar-backdrop"
@@ -428,10 +443,11 @@
             item.addEventListener('click', () => toggleProfileMenu(false));
         });
 
-        const deleteConfirmation = document.getElementById('delete-confirmation');
-        const deleteConfirmationTitle = document.getElementById('delete-confirmation-title');
-        const deleteConfirmationCancel = document.getElementById('delete-confirmation-cancel');
-        const deleteConfirmationConfirm = document.getElementById('delete-confirmation-confirm');
+         const deleteConfirmation = document.getElementById('delete-confirmation');
+         const deleteConfirmationTitle = document.getElementById('delete-confirmation-title');
+         const deleteConfirmationDescription = document.getElementById('delete-confirmation-description');
+         const deleteConfirmationCancel = document.getElementById('delete-confirmation-cancel');
+         const deleteConfirmationConfirm = document.getElementById('delete-confirmation-confirm');
         const deleteTriggers = Array.from(document.querySelectorAll('[data-delete-trigger]'));
         const feminineDeleteLabels = new Set(['variante', 'categoría', 'colección', 'piedra', 'talla']);
         let deleteTrigger = null;
@@ -453,11 +469,25 @@
         deleteTriggers.forEach((trigger) => {
             trigger.addEventListener('click', () => {
                 deleteTrigger = trigger;
-                const label = trigger.dataset.deleteLabel;
-                const article = feminineDeleteLabels.has(label) ? 'esta' : 'este';
+                 const label = trigger.dataset.deleteLabel;
+                 const article = feminineDeleteLabels.has(label) ? 'esta' : 'este';
+                 const physicalStock = Number(trigger.dataset.deleteStock || 0);
 
-                deleteConfirmationTitle.textContent = `¿Eliminar ${article} ${label}?`;
-                toggleDeleteConfirmation(true);
+                 if (label === 'producto' && physicalStock > 0) {
+                     deleteConfirmationTitle.textContent = '¿Retirar este producto del catálogo?';
+                     deleteConfirmationDescription.textContent = `Este producto todavía tiene existencias en inventario. Actualmente hay ${physicalStock} unidades distribuidas entre sus variantes. Si continúas, el producto dejará de estar disponible en el catálogo, pero las existencias y el historial de movimientos se conservarán. Podrás restaurar el producto posteriormente.`;
+                     deleteConfirmationConfirm.textContent = 'Eliminar del catálogo';
+                 } else if (label === 'variante' && physicalStock > 0) {
+                     deleteConfirmationTitle.textContent = '¿Retirar esta variante del catálogo?';
+                     deleteConfirmationDescription.textContent = `Esta variante todavía tiene existencias en inventario. Actualmente hay ${physicalStock} unidades. Si continúas, la variante dejará de estar disponible en el catálogo, pero el stock y el historial de movimientos se conservarán. Podrás restaurarla posteriormente.`;
+                     deleteConfirmationConfirm.textContent = 'Eliminar del catálogo';
+                 } else {
+                     deleteConfirmationTitle.textContent = `¿Eliminar ${article} ${label}?`;
+                     deleteConfirmationDescription.textContent = 'Esta acción eliminará el registro. ¿Deseas continuar?';
+                     deleteConfirmationConfirm.textContent = 'Eliminar';
+                 }
+
+                 toggleDeleteConfirmation(true);
                 deleteConfirmationCancel?.focus();
             });
         });

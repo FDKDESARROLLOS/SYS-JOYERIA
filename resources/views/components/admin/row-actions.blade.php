@@ -5,6 +5,7 @@
     'secondaryLabel' => null,
     'deleteLabel' => null,
     'deleteUrl' => null,
+    'deleteStock' => 0,
 ])
 
 <div class="inline-flex items-center gap-1">
@@ -27,7 +28,7 @@
         <button type="button"
             class="delete-record-trigger aurea-focus rounded-md p-2 text-[#6f675d] hover:bg-[#f9e9e6] hover:text-aurea-danger"
             data-delete-trigger data-delete-label="{{ $deleteLabel }}" data-delete-name="{{ $label }}"
-            data-delete-url="{{ $deleteUrl }}" aria-label="Eliminar {{ $label }}"
+            data-delete-stock="{{ $deleteStock }}" data-delete-url="{{ $deleteUrl }}" aria-label="Eliminar {{ $label }}"
             title="Eliminar {{ $label }}">
             <x-admin.icon name="trash" class="h-[18px] w-[18px]" />
         </button>

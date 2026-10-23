@@ -52,9 +52,15 @@
                 <h3 id="variants-list-title" class="font-serif text-xl text-[#28302b]">Variantes del producto</h3>
                 <p class="mt-1 text-xs text-[#8a938d]">{{ $productVariants->total() }} versiones configuradas</p>
             </div>
-            <div class="flex flex-wrap items-center gap-3">
-                <p class="text-xs text-[#9ca49e]">El stock se administra desde Inventario.</p>
-                <a href="{{ route('products.variants.create', $productModel) }}"
+             <div class="flex flex-wrap items-center gap-3">
+                 <p class="text-xs text-[#9ca49e]">El stock se administra desde Inventario.</p>
+                 @if (auth()->user()?->role === 'admin')
+                     <a href="{{ route('products.variants.deleted', $productModel) }}"
+                         class="aurea-focus inline-flex w-fit items-center rounded-lg border border-[#dfe2dc] px-3 py-2 text-xs font-medium text-[#68736c] hover:border-aurea-gold hover:text-aurea-focus">
+                         Variantes eliminadas
+                     </a>
+                 @endif
+                 <a href="{{ route('products.variants.create', $productModel) }}"
                     class="aurea-focus inline-flex w-fit items-center gap-2 rounded-lg bg-aurea-gold px-3 py-2 text-xs font-medium text-white shadow-sm hover:bg-[#9f793f]">
                     <span class="text-base leading-none">+</span>
                     Nueva variante
@@ -118,9 +124,10 @@
                                 <td class="px-5 py-4 text-right sm:px-6">
                                     <x-admin.row-actions
                                         :label="$variant->sku"
-                                        :edit-url="route('products.variants.edit', [$productModel, $variant])"
-                                        delete-label="variante"
-                                        :delete-url="route('products.variants.destroy', [$productModel, $variant])"
+                                         :edit-url="route('products.variants.edit', [$productModel, $variant])"
+                                         delete-label="variante"
+                                         :delete-stock="$variant->inventoryStock?->current_stock ?? 0"
+                                         :delete-url="route('products.variants.destroy', [$productModel, $variant])"
                                     />
                                 </td>
                             </tr>
@@ -153,9 +160,10 @@
                             </div>
                             <x-admin.row-actions
                                 :label="$variant->sku"
-                                :edit-url="route('products.variants.edit', [$productModel, $variant])"
-                                delete-label="variante"
-                                :delete-url="route('products.variants.destroy', [$productModel, $variant])"
+                                 :edit-url="route('products.variants.edit', [$productModel, $variant])"
+                                 delete-label="variante"
+                                 :delete-stock="$variant->inventoryStock?->current_stock ?? 0"
+                                 :delete-url="route('products.variants.destroy', [$productModel, $variant])"
                             />
                         </div>
                     </article>

@@ -10,6 +10,12 @@
         description="Gestiona las piezas que forman parte del catálogo de {{ config('aurea-demo.store_settings.store_name', 'Tienda') }}."
     >
         <x-slot:actions>
+            @if (auth()->user()?->role === 'admin')
+                <a href="{{ route('products.deleted') }}"
+                    class="aurea-focus inline-flex w-fit items-center justify-center rounded-lg border border-[#dfe2dc] px-4 py-2.5 text-sm font-medium text-[#68736c] transition hover:border-aurea-gold hover:text-aurea-focus">
+                    Productos eliminados
+                </a>
+            @endif
             <a href="{{ route('products.create') }}"
                 class="aurea-focus inline-flex w-fit items-center gap-2 rounded-lg bg-aurea-gold px-4 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-[#9f793f]">
                 <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true">
@@ -154,9 +160,10 @@
                                         :label="$product->name"
                                         :edit-url="route('products.edit', $product)"
                                         :secondary-url="route('products.variants.index', $product)"
-                                        secondary-label="Variantes"
-                                        delete-label="producto"
-                                        :delete-url="route('products.destroy', $product)"
+                                         secondary-label="Variantes"
+                                         delete-label="producto"
+                                         :delete-stock="$product->physical_stock"
+                                         :delete-url="route('products.destroy', $product)"
                                     />
                                 </td>
                             </tr>
@@ -201,9 +208,10 @@
                                 :label="$product->name"
                                 :edit-url="route('products.edit', $product)"
                                  :secondary-url="route('products.variants.index', $product)"
-                                secondary-label="Variantes"
-                                delete-label="producto"
-                                :delete-url="route('products.destroy', $product)"
+                                 secondary-label="Variantes"
+                                 delete-label="producto"
+                                 :delete-stock="$product->physical_stock"
+                                 :delete-url="route('products.destroy', $product)"
                             />
                         </div>
                     </article>

@@ -4,9 +4,11 @@ namespace App\Http\Controllers;
 
 use App\Models\Category;
 use App\Models\Collection;
+use App\Models\InventoryStock;
 use App\Models\Material;
 use App\Models\Product;
 use App\Models\ProductImage;
+use App\Models\ProductVariant;
 use App\Models\Size;
 use App\Models\Stone;
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
@@ -35,6 +37,9 @@ class ProductController extends Controller
                     ->orderByDesc('is_cover')
                     ->orderBy('sort_order')
                     ->orderBy('id'),
+                'variants' => fn ($query) => $query
+                    ->withTrashed()
+                    ->with('inventoryStock:id,product_variant_id,current_stock'),
             ])
             ->when($search !== '', function ($query) use ($search): void {
                 $query->where(function ($query) use ($search): void {
@@ -60,10 +65,36 @@ class ProductController extends Controller
             ->paginate(10)
             ->withQueryString();
 
+        $this->annotatePhysicalStock($products->getCollection());
+
         return view('products.index', [
             'products' => $products,
             'categories' => $this->activeCategories(),
             'collections' => $this->activeCollections(),
+        ]);
+    }
+
+    public function deleted(): View
+    {
+        $products = Product::onlyTrashed()
+            ->with([
+                'category' => fn ($query) => $query->withTrashed()->select(['id', 'name']),
+                'images' => fn ($query) => $query
+                    ->orderByDesc('is_cover')
+                    ->orderBy('sort_order')
+                    ->orderBy('id'),
+                'variants' => fn ($query) => $query
+                    ->withTrashed()
+                    ->with('inventoryStock:id,product_variant_id,current_stock'),
+            ])
+            ->latest('deleted_at')
+            ->latest('id')
+            ->paginate(10);
+
+        $this->annotatePhysicalStock($products->getCollection());
+
+        return view('products.deleted', [
+            'products' => $products,
         ]);
     }
 
@@ -159,11 +190,43 @@ class ProductController extends Controller
 
     public function destroy(Product $product): RedirectResponse
     {
-        $product->delete();
+        $physicalStock = 0;
+
+        DB::transaction(function () use ($product, &$physicalStock): void {
+            $stocks = InventoryStock::query()
+                ->whereHas('productVariant', fn ($query) => $query
+                    ->withTrashed()
+                    ->where('product_id', $product->id))
+                ->lockForUpdate()
+                ->get(['id', 'current_stock']);
+
+            $lockedProduct = Product::query()
+                ->lockForUpdate()
+                ->findOrFail($product->id);
+
+            abort_unless(! $lockedProduct->trashed(), 404);
+
+            $physicalStock = (int) $stocks->sum('current_stock');
+            $lockedProduct->delete();
+        });
 
         return redirect()
             ->route('products.index')
-            ->with('status', 'Producto eliminado correctamente.');
+            ->with(
+                'status',
+                $physicalStock > 0
+                    ? "Producto retirado del catálogo. Se conservaron {$physicalStock} existencias físicas."
+                    : 'Producto eliminado correctamente.',
+            );
+    }
+
+    public function restore(Product $product): RedirectResponse
+    {
+        $product->restore();
+
+        return redirect()
+            ->route('products.deleted')
+            ->with('status', 'Producto restaurado correctamente.');
     }
 
     public function reorderImages(Request $request, Product $product): JsonResponse
@@ -611,6 +674,17 @@ class ProductController extends Controller
             ->where('status', true)
             ->orderBy('name')
             ->get(['id', 'name']);
+    }
+
+    private function annotatePhysicalStock(EloquentCollection $products): void
+    {
+        $products->each(function (Product $product): void {
+            $physicalStock = $product->variants->sum(
+                fn (ProductVariant $variant): int => (int) $variant->inventoryStock?->current_stock,
+            );
+
+            $product->setAttribute('physical_stock', $physicalStock);
+        });
     }
 
     /**

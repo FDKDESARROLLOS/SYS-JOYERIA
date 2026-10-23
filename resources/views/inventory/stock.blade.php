@@ -37,9 +37,9 @@
 
     <section
         class="overflow-hidden rounded-2xl border border-aurea-border bg-aurea-surface shadow-[0_5px_20px_rgba(35,42,37,0.03)]"
-        aria-labelledby="stock-list-title">
+        aria-labelledby="active-stock-list-title">
         <div class="border-b border-[#eef0ec] px-5 py-5 sm:px-6">
-            <h3 id="stock-list-title" class="font-serif text-xl text-[#28302b]">Stock actual</h3>
+            <h3 id="active-stock-list-title" class="font-serif text-xl text-[#28302b]">Existencias activas</h3>
             <p class="mt-1 text-xs text-[#8a938d]">Mostrando {{ $inventoryStocks->total() }} productos y variantes.
             </p>
         </div>
@@ -48,93 +48,27 @@
             <x-admin.empty-state title="No hay existencias todavía"
                 description="El stock actual de productos y variantes aparecerá aquí." />
         @else
-            <div class="hidden overflow-x-auto sm:block">
-                <table class="admin-table w-full min-w-220 text-left text-sm">
-                    <caption class="sr-only">Existencias actuales de productos y variantes</caption>
-                    <thead class="bg-[#fbfbf9] text-[10px] uppercase tracking-wider text-[#9ca49e]">
-                        <tr>
-                            <th scope="col" class="px-5 py-3 font-medium sm:px-6">Producto</th>
-                            <th scope="col" class="px-3 py-3 font-medium">Características</th>
-                            <th scope="col" class="px-3 py-3 font-medium">SKU</th>
-                            <th scope="col" class="px-3 py-3 font-medium">Categoría</th>
-                            <th scope="col" class="px-3 py-3 font-medium">Stock actual</th>
-                            <th scope="col" class="px-3 py-3 font-medium">Estado</th>
-                            <th scope="col" class="px-5 py-3 text-right font-medium sm:px-6">Acciones</th>
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y divide-[#f0f1ed]">
-                        @foreach ($inventoryRows as $inventoryRow)
-                            <tr class="text-[#5b655e] hover:bg-[#fbfbf9]">
-                                <td class="px-5 py-4 sm:px-6">
-                                    <div class="flex items-center gap-3">
-                                        <x-admin.product-thumbnail :image="$inventoryRow['image']" :alt="$inventoryRow['product']" size="xs" />
-                                        <p class="font-medium text-[#343d37]">{{ $inventoryRow['product'] }}</p>
-                                    </div>
-                                </td>
-                                <td class="px-3 py-4">{{ $inventoryRow['variant'] }}</td>
-                                <td class="px-3 py-4 text-xs text-[#929b94]">{{ $inventoryRow['sku'] }}</td>
-                                <td class="px-3 py-4">{{ $inventoryRow['category'] }}</td>
-                                <td
-                                    class="px-3 py-4 font-medium {{ $inventoryRow['current_stock'] === 0 ? 'text-aurea-danger' : 'text-[#343d37]' }}">
-                                    {{ $inventoryRow['current_stock'] }}
-                                </td>
-                                <td class="px-3 py-4">
-                                    <x-admin.status-badge :label="$inventoryRow['stock_status']" :status-class="$inventoryRow['stock_status_class']" />
-                                </td>
-                                <td class="px-5 py-4 text-right sm:px-6">
-                                    <a href="{{ route('inventory.movements.show', $inventoryRow['inventory_stock_id']) }}"
-                                        class="aurea-focus rounded-md px-2 py-1.5 text-xs font-medium text-aurea-muted hover:bg-aurea-paper hover:text-aurea-focus"
-                                        aria-label="Ver movimientos de {{ $inventoryRow['product'] }} {{ $inventoryRow['variant'] }}">
-                                        Ver movimientos
-                                    </a>
-                                </td>
-                            </tr>
-                        @endforeach
-                    </tbody>
-                </table>
-            </div>
-
-            <div class="divide-y divide-[#f0f1ed] sm:hidden">
-                @foreach ($inventoryRows as $inventoryRow)
-                    <article class="px-5 py-4">
-                        <div class="flex items-start justify-between gap-3">
-                            <div class="flex min-w-0 items-center gap-3">
-                                <x-admin.product-thumbnail :image="$inventoryRow['image']" :alt="$inventoryRow['product']" size="xs" />
-                                <div class="min-w-0">
-                                    <p class="text-sm font-medium text-[#343d37]">{{ $inventoryRow['product'] }}</p>
-                                    <p class="mt-1 text-xs text-[#929b94]">{{ $inventoryRow['variant'] }}</p>
-                                </div>
-                            </div>
-                            <x-admin.status-badge :label="$inventoryRow['stock_status']" :status-class="$inventoryRow['stock_status_class']" />
-                        </div>
-                        <dl class="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
-                            <div>
-                                <dt class="text-[#929b94]">SKU</dt>
-                                <dd class="mt-0.5 text-[#5b655e]">{{ $inventoryRow['sku'] }}</dd>
-                            </div>
-                            <div>
-                                <dt class="text-[#929b94]">Categoría</dt>
-                                <dd class="mt-0.5 text-[#5b655e]">{{ $inventoryRow['category'] }}</dd>
-                            </div>
-                            <div>
-                                <dt class="text-[#929b94]">Stock</dt>
-                                <dd class="mt-0.5 font-medium text-[#343d37]">{{ $inventoryRow['current_stock'] }}</dd>
-                            </div>
-                        </dl>
-                        <div class="mt-3 flex justify-end">
-                            <a href="{{ route('inventory.movements.show', $inventoryRow['inventory_stock_id']) }}"
-                                class="aurea-focus rounded-md px-2 py-1.5 text-xs font-medium text-aurea-muted hover:bg-aurea-paper hover:text-aurea-focus"
-                                aria-label="Ver movimientos de {{ $inventoryRow['product'] }} {{ $inventoryRow['variant'] }}">
-                                Ver movimientos
-                            </a>
-                        </div>
-                    </article>
-                @endforeach
-            </div>
-
-            <div class="border-t border-[#eef0ec] px-5 py-4 sm:px-6">
-                {{ $inventoryStocks->links() }}
-            </div>
+            @include('inventory.partials.stock-table', [
+                'inventoryRows' => $inventoryRows,
+                'inventoryStocks' => $inventoryStocks,
+            ])
         @endif
     </section>
+
+    @if ($archivedInventoryRows->isNotEmpty())
+        <section
+            class="mt-7 overflow-hidden rounded-2xl border border-aurea-border bg-aurea-surface shadow-[0_5px_20px_rgba(35,42,37,0.03)]"
+            aria-labelledby="archived-stock-list-title">
+            <div class="border-b border-[#eef0ec] px-5 py-5 sm:px-6">
+                <h3 id="archived-stock-list-title" class="font-serif text-xl text-[#28302b]">Existencias fuera de catálogo</h3>
+                <p class="mt-1 text-xs text-[#8a938d]">Estos artículos ya no están disponibles en el catálogo, pero todavía tienen existencias físicas.</p>
+            </div>
+
+            @include('inventory.partials.stock-table', [
+                'inventoryRows' => $archivedInventoryRows,
+                'inventoryStocks' => $archivedInventoryStocks,
+                'showStatus' => false,
+            ])
+        </section>
+    @endif
 @endsection

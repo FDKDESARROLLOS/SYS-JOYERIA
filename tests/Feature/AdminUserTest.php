@@ -25,6 +25,31 @@ class AdminUserTest extends TestCase
         $response->assertStatus(200);
     }
 
+    public function test_technical_users_cannot_access_admin_user_management(): void
+    {
+        $technical = User::factory()->create(['role' => 'technical']);
+        $user = User::factory()->create();
+
+        $this->actingAs($technical)
+            ->get(route('settings.admin-users.index'))
+            ->assertForbidden();
+        $this->actingAs($technical)
+            ->get(route('settings.admin-users.create'))
+            ->assertForbidden();
+        $this->actingAs($technical)
+            ->get(route('settings.admin-users.edit', $user))
+            ->assertForbidden();
+        $this->actingAs($technical)
+            ->post(route('settings.admin-users.store'), [])
+            ->assertForbidden();
+        $this->actingAs($technical)
+            ->patch(route('settings.admin-users.update', $user), [])
+            ->assertForbidden();
+        $this->actingAs($technical)
+            ->delete(route('settings.admin-users.destroy', $user))
+            ->assertForbidden();
+    }
+
     public function test_authenticated_user_can_view_admin_user_creation_form(): void
     {
         $admin = User::factory()->create([

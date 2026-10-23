@@ -3,6 +3,8 @@
 namespace Tests\Feature;
 
 use App\Models\Category;
+use App\Models\InventoryMovement;
+use App\Models\InventoryStock;
 use App\Models\Material;
 use App\Models\Product;
 use App\Models\ProductImage;
@@ -11,9 +13,12 @@ use App\Models\ProductVariant;
 use App\Models\Size;
 use App\Models\Stone;
 use App\Models\User;
+use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Tests\TestCase;
 
@@ -618,11 +623,279 @@ class ProductVariantTest extends TestCase
 
         $this->actingAs($admin)
             ->delete(route('products.variants.destroy', [$secondProduct, $variant]))
-            ->assertRedirect(route('products.variants.index', $secondProduct));
+            ->assertRedirect(route('products.variants.index', $secondProduct))
+            ->assertSessionHas('status', 'Variante eliminada correctamente.');
 
         $this->assertSoftDeleted('product_variants', ['id' => $variant->id]);
         $this->assertNotNull(ProductVariant::withTrashed()->find($variant->id));
         $this->assertNotNull($firstSize->fresh());
+    }
+
+    public function test_variant_with_stock_exposes_catalog_removal_warning_and_preserves_inventory(): void
+    {
+        $admin = User::factory()->create();
+        [$product, $size] = $this->createProductWithSize();
+        $variant = ProductVariant::create($this->variantPayload($product, $size, [
+            'sku' => 'STOCK-VARIANT',
+        ]));
+        $stock = InventoryStock::create([
+            'product_variant_id' => $variant->id,
+            'current_stock' => 6,
+            'minimum_stock' => 0,
+        ]);
+        $movement = InventoryMovement::create([
+            'inventory_stock_id' => $stock->id,
+            'type' => 'Entrada',
+            'quantity' => 6,
+            'previous_stock' => 0,
+            'resulting_stock' => 6,
+            'reason' => 'Carga inicial',
+            'movement_at' => now(),
+        ]);
+
+        $this->actingAs($admin)
+            ->get(route('products.variants.index', $product))
+            ->assertSee('data-delete-stock="6"', false);
+
+        DB::table('inventory_stocks')
+            ->where('id', $stock->id)
+            ->update(['current_stock' => 4]);
+
+        $this->actingAs($admin)
+            ->delete(route('products.variants.destroy', [$product, $variant]))
+            ->assertRedirect(route('products.variants.index', $product))
+            ->assertSessionHas('status', 'Variante retirada del catálogo. Se conservaron 4 existencias físicas.');
+
+        $this->assertSoftDeleted('product_variants', ['id' => $variant->id]);
+        $this->assertDatabaseHas('inventory_stocks', [
+            'id' => $stock->id,
+            'current_stock' => 4,
+        ]);
+        $this->assertDatabaseHas('inventory_movements', [
+            'id' => $movement->id,
+            'inventory_stock_id' => $stock->id,
+        ]);
+        $this->assertSame(1, InventoryMovement::where('inventory_stock_id', $stock->id)->count());
+
+        $this->actingAs($admin)
+            ->get(route('inventory.stock'))
+            ->assertViewHas('archivedInventoryRows', function ($rows) use ($stock): bool {
+                return $rows->contains('inventory_stock_id', $stock->id)
+                    && $rows->firstWhere('inventory_stock_id', $stock->id)['current_stock'] === 4;
+            });
+    }
+
+    public function test_deleted_variants_are_listed_only_for_the_product_and_show_physical_stock(): void
+    {
+        $admin = User::factory()->create();
+        [$product, $size] = $this->createProductWithSize();
+        $activeVariant = ProductVariant::create($this->variantPayload($product, $size, [
+            'sku' => 'ACTIVE-VARIANT',
+        ]));
+        $deletedVariant = ProductVariant::create($this->variantPayload($product, $size, [
+            'sku' => 'DELETED-VARIANT',
+        ]));
+        $stock = InventoryStock::create([
+            'product_variant_id' => $deletedVariant->id,
+            'current_stock' => 8,
+            'minimum_stock' => 0,
+        ]);
+        $movement = InventoryMovement::create([
+            'inventory_stock_id' => $stock->id,
+            'type' => 'Entrada',
+            'quantity' => 8,
+            'previous_stock' => 0,
+            'resulting_stock' => 8,
+            'reason' => 'Carga inicial',
+            'movement_at' => now(),
+        ]);
+        $deletedVariant->delete();
+
+        $response = $this->actingAs($admin)->get(route('products.variants.deleted', $product));
+
+        $response
+            ->assertOk()
+            ->assertViewIs('products.variants.deleted')
+            ->assertSee('DELETED-VARIANT')
+            ->assertSee('Con existencias')
+            ->assertSee('Restaurar')
+            ->assertViewHas('productVariants', function ($variants) use ($deletedVariant, $activeVariant): bool {
+                return $variants->contains('id', $deletedVariant->id)
+                    && ! $variants->contains('id', $activeVariant->id);
+            });
+
+        $this->actingAs($admin)
+            ->get(route('products.variants.index', $product))
+            ->assertSee('Variantes eliminadas')
+            ->assertSee('href="'.route('products.variants.deleted', $product).'"', false);
+
+        $this->assertDatabaseHas('inventory_stocks', ['id' => $stock->id, 'current_stock' => 8]);
+        $this->assertDatabaseHas('inventory_movements', ['id' => $movement->id]);
+    }
+
+    public function test_restoring_a_variant_preserves_stock_history_and_returns_it_to_active_inventory(): void
+    {
+        $admin = User::factory()->create();
+        [$product, $size] = $this->createProductWithSize();
+        $variant = ProductVariant::create($this->variantPayload($product, $size, [
+            'sku' => 'RESTORE-VARIANT',
+        ]));
+        $stock = InventoryStock::create([
+            'product_variant_id' => $variant->id,
+            'current_stock' => 10,
+            'minimum_stock' => 0,
+        ]);
+        $movement = InventoryMovement::create([
+            'inventory_stock_id' => $stock->id,
+            'type' => 'Entrada',
+            'quantity' => 10,
+            'previous_stock' => 0,
+            'resulting_stock' => 10,
+            'reason' => 'Carga inicial',
+            'movement_at' => now(),
+        ]);
+        $variant->delete();
+
+        $this->actingAs($admin)
+            ->patch(route('products.variants.restore', [$product, $variant]))
+            ->assertRedirect(route('products.variants.index', $product))
+            ->assertSessionHas('status', 'Variante restaurada correctamente.');
+
+        $this->assertNotNull(ProductVariant::find($variant->id));
+        $this->assertSame('RESTORE-VARIANT', $variant->fresh()->sku);
+        $this->assertDatabaseHas('inventory_stocks', ['id' => $stock->id, 'current_stock' => 10]);
+        $this->assertDatabaseHas('inventory_movements', ['id' => $movement->id]);
+        $this->assertSame(1, InventoryMovement::where('inventory_stock_id', $stock->id)->count());
+
+        $this->actingAs($admin)
+            ->get(route('products.variants.index', $product))
+            ->assertSee('RESTORE-VARIANT');
+        $this->actingAs($admin)
+            ->get(route('inventory.stock'))
+            ->assertViewHas('inventoryRows', function ($rows) use ($stock): bool {
+                return $rows->contains('inventory_stock_id', $stock->id)
+                    && ! $rows->contains('is_out_of_catalog', true);
+            })
+            ->assertViewHas('archivedInventoryRows', function ($rows) use ($stock): bool {
+                return ! $rows->contains('inventory_stock_id', $stock->id);
+            });
+    }
+
+    public function test_restoring_a_variant_is_blocked_when_the_parent_product_is_deleted(): void
+    {
+        $admin = User::factory()->create();
+        [$product, $size] = $this->createProductWithSize();
+        $variant = ProductVariant::create($this->variantPayload($product, $size, [
+            'sku' => 'PARENT-DELETED-VARIANT',
+        ]));
+        $variant->delete();
+        $product->delete();
+
+        $this->actingAs($admin)
+            ->patch(route('products.variants.restore', [$product, $variant]))
+            ->assertRedirect(route('products.index'))
+            ->assertSessionHas('error', 'No se puede restaurar la variante porque su producto está eliminado.');
+
+        $this->assertSoftDeleted('product_variants', ['id' => $variant->id]);
+    }
+
+    public function test_restoring_a_variant_is_blocked_when_an_active_variant_uses_the_same_sku(): void
+    {
+        $admin = User::factory()->create();
+        [$product, $size] = $this->createProductWithSize();
+        $deletedVariant = ProductVariant::create($this->variantPayload($product, $size, [
+            'sku' => 'CONFLICT-SKU',
+        ]));
+        $deletedVariant->delete();
+
+        Schema::table('product_variants', function (Blueprint $table): void {
+            $table->dropUnique('product_variants_sku_unique');
+        });
+
+        $activeVariant = null;
+
+        try {
+            $activeVariant = ProductVariant::create($this->variantPayload($product, $size, [
+                'sku' => 'CONFLICT-SKU',
+            ]));
+
+            $this->actingAs($admin)
+                ->patch(route('products.variants.restore', [$product, $deletedVariant]))
+                ->assertRedirect(route('products.variants.deleted', $product))
+                ->assertSessionHas('error', 'No se puede restaurar la variante porque su SKU ya está en uso.');
+
+            $this->assertSoftDeleted('product_variants', ['id' => $deletedVariant->id]);
+        } finally {
+            if ($activeVariant !== null) {
+                DB::table('product_variants')
+                    ->where('id', $activeVariant->id)
+                    ->update(['sku' => 'CONFLICT-CLEANUP-'.$activeVariant->id]);
+            }
+
+            Schema::table('product_variants', function (Blueprint $table): void {
+                $table->unique('sku');
+            });
+        }
+    }
+
+    public function test_restoring_a_variant_is_blocked_when_an_active_variant_uses_the_same_combination(): void
+    {
+        $admin = User::factory()->create();
+        [$product, $size] = $this->createProductWithSize();
+        $deletedVariant = ProductVariant::create($this->variantPayload($product, $size, [
+            'sku' => 'COMBINATION-DELETED',
+        ]));
+        $deletedVariant->delete();
+
+        ProductVariant::create($this->variantPayload($product, $size, [
+            'sku' => 'COMBINATION-ACTIVE',
+        ]));
+
+        $this->actingAs($admin)
+            ->patch(route('products.variants.restore', [$product, $deletedVariant]))
+            ->assertRedirect(route('products.variants.deleted', $product))
+            ->assertSessionHas('error', 'No se puede restaurar esta variante porque ya existe una variante activa con las mismas características.');
+
+        $this->assertSoftDeleted('product_variants', ['id' => $deletedVariant->id]);
+    }
+
+    public function test_technical_users_cannot_view_or_restore_deleted_variants(): void
+    {
+        $technical = User::factory()->create(['role' => 'technical']);
+        [$product, $size] = $this->createProductWithSize();
+        $variant = ProductVariant::create($this->variantPayload($product, $size, [
+            'sku' => 'TECHNICAL-DELETED-VARIANT',
+        ]));
+        $variant->delete();
+        $activeVariant = ProductVariant::create($this->variantPayload($product, $size, [
+            'sku' => 'TECHNICAL-ACTIVE-VARIANT',
+        ]));
+
+        $this->actingAs($technical)
+            ->get(route('products.variants.deleted', $product))
+            ->assertForbidden();
+        $this->actingAs($technical)
+            ->get(route('products.variants.index', $product))
+            ->assertForbidden();
+        $this->actingAs($technical)
+            ->get(route('products.variants.create', $product))
+            ->assertForbidden();
+        $this->actingAs($technical)
+            ->get(route('products.variants.edit', [$product, $activeVariant]))
+            ->assertForbidden();
+        $this->actingAs($technical)
+            ->post(route('products.variants.store', $product), [])
+            ->assertForbidden();
+        $this->actingAs($technical)
+            ->patch(route('products.variants.update', [$product, $activeVariant]), [])
+            ->assertForbidden();
+        $this->actingAs($technical)
+            ->delete(route('products.variants.destroy', [$product, $activeVariant]))
+            ->assertForbidden();
+        $this->actingAs($technical)
+            ->patch(route('products.variants.restore', [$product, $variant]))
+            ->assertForbidden();
+        $this->assertSoftDeleted('product_variants', ['id' => $variant->id]);
     }
 
     /**

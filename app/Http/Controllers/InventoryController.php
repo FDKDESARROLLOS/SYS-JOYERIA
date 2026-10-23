@@ -7,6 +7,7 @@ use App\Models\InventoryMovement;
 use App\Models\InventoryStock;
 use App\Models\Product;
 use App\Models\ProductVariant;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -22,32 +23,33 @@ class InventoryController extends Controller
         $categoryId = $request->integer('category_id');
         $stockStatus = $request->query('stock_status');
 
-        $inventoryStocks = InventoryStock::query()
-            ->with($this->stockRelations())
-            ->whereHas('productVariant', function ($query) use ($search, $categoryId): void {
-                $query
-                    ->when($search !== '', function ($query) use ($search): void {
-                        $query->where(function ($query) use ($search): void {
-                            $query->where('sku', 'like', "%{$search}%")
-                                ->orWhereHas('product', function ($query) use ($search): void {
-                                    $query->where('name', 'like', "%{$search}%")
-                                        ->orWhere('code', 'like', "%{$search}%");
-                                });
-                        });
-                    })
-                    ->when($categoryId > 0, function ($query) use ($categoryId): void {
-                        $query->whereHas('product', function ($query) use ($categoryId): void {
-                            $query->where(function ($query) use ($categoryId): void {
-                                $query->where('category_id', $categoryId)
-                                    ->orWhereHas('category', fn ($query) => $query->where('parent_id', $categoryId));
-                            });
-                        });
-                    });
-            })
+        $inventoryStocks = $this->applyStockFilters(
+            InventoryStock::query()->with($this->stockRelations()),
+            $search,
+            $categoryId,
+        )
+            ->whereHas('productVariant.product')
+            ->whereHas('productVariant', fn ($query) => $query->where('status', 'active'))
+            ->whereHas('productVariant.product', fn ($query) => $query->where('status', 'active'))
             ->when($stockStatus === 'available', fn ($query) => $query->where('current_stock', '>', 0))
             ->when($stockStatus === 'out', fn ($query) => $query->where('current_stock', '<=', 0))
             ->orderBy('id')
             ->paginate(10)
+            ->withQueryString();
+
+        $archivedInventoryStocks = $this->applyStockFilters(
+            InventoryStock::query()->with($this->stockRelations(true)),
+            $search,
+            $categoryId,
+            true,
+        )
+            ->where('current_stock', '>', 0)
+            ->where(function ($query): void {
+                $query->whereHas('productVariant', fn ($query) => $query->onlyTrashed())
+                    ->orWhereHas('productVariant.product', fn ($query) => $query->onlyTrashed());
+            })
+            ->orderBy('id')
+            ->paginate(10, ['*'], 'archived_page')
             ->withQueryString();
 
         return view('inventory.stock', [
@@ -60,6 +62,10 @@ class InventoryController extends Controller
             'selectedCategoryId' => $categoryId > 0 ? $categoryId : null,
             'selectedStockStatus' => $stockStatus,
             'inventoryRows' => $inventoryStocks->getCollection()->map(
+                fn (InventoryStock $inventoryStock): array => $this->stockRow($inventoryStock)
+            ),
+            'archivedInventoryStocks' => $archivedInventoryStocks,
+            'archivedInventoryRows' => $archivedInventoryStocks->getCollection()->map(
                 fn (InventoryStock $inventoryStock): array => $this->stockRow($inventoryStock)
             ),
         ]);
@@ -78,9 +84,11 @@ class InventoryController extends Controller
                     $query->where('reference', 'like', "%{$search}%")
                         ->orWhere('reason', 'like', "%{$search}%")
                         ->orWhereHas('inventoryStock.productVariant', function ($query) use ($search): void {
-                            $query->where('sku', 'like', "%{$search}%")
+                            $query->withTrashed()
+                                ->where('sku', 'like', "%{$search}%")
                                 ->orWhereHas('product', function ($query) use ($search): void {
-                                    $query->where('name', 'like', "%{$search}%")
+                                    $query->withTrashed()
+                                        ->where('name', 'like', "%{$search}%")
                                         ->orWhere('code', 'like', "%{$search}%");
                                 });
                         });
@@ -116,6 +124,8 @@ class InventoryController extends Controller
         $inventoryStocks = InventoryStock::query()
             ->with($this->stockRelations())
             ->whereHas('productVariant.product')
+            ->whereHas('productVariant', fn ($query) => $query->where('status', 'active'))
+            ->whereHas('productVariant.product', fn ($query) => $query->where('status', 'active'))
             ->orderBy('id')
             ->get();
 
@@ -140,17 +150,7 @@ class InventoryController extends Controller
         ]);
         $inventoryStock = InventoryStock::query()->findOrFail($validated['inventory_stock_id']);
 
-        if ($request->input('type') === 'Ajuste' && ! filled($request->input('adjustment_stock'))) {
-            $quantity = (int) $request->input('quantity');
-            $currentStock = (int) $inventoryStock->current_stock;
-            $adjustmentStock = $request->input('adjustment_type') === 'decrease'
-                ? $currentStock - $quantity
-                : $currentStock + $quantity;
-
-            $request->merge(['adjustment_stock' => max(0, $adjustmentStock)]);
-        }
-
-        return $this->storeMovement($request, $inventoryStock);
+        return $this->storeMovement($request, $inventoryStock, true);
     }
 
     public function storeContextualMovement(Request $request, InventoryStock $inventoryStock): RedirectResponse
@@ -167,19 +167,19 @@ class InventoryController extends Controller
             ]);
         }
 
-        return $this->storeMovement($request, $inventoryStock);
+        return $this->storeMovement($request, $inventoryStock, true);
     }
 
     public function show(InventoryStock $inventoryStock): View
     {
         $inventoryStock->load([
-            ...$this->stockRelations(),
+            ...$this->stockRelations(true),
             'movements' => fn ($query) => $query
                 ->with('user:id,name')
                 ->latest('movement_at')
                 ->latest('id'),
         ]);
-        $this->ensureStockIsVisible($inventoryStock);
+        $this->ensureStockIsVisible($inventoryStock, true);
 
         return view('inventory.show', [
             'inventoryStock' => $inventoryStock,
@@ -188,13 +188,17 @@ class InventoryController extends Controller
         ]);
     }
 
-    public function storeMovement(Request $request, InventoryStock $inventoryStock): RedirectResponse
-    {
+    public function storeMovement(
+        Request $request,
+        InventoryStock $inventoryStock,
+        bool $calculateAdjustmentFromQuantity = false,
+    ): RedirectResponse {
         $this->ensureStockIsVisible($inventoryStock);
 
         $validated = $request->validate([
             'type' => ['required', Rule::in(['Entrada', 'Salida', 'Ajuste', 'Devolución'])],
             'quantity' => ['nullable', 'integer', 'min:1'],
+            'adjustment_type' => ['nullable', Rule::in(['increase', 'decrease'])],
             'adjustment_stock' => ['nullable', 'integer', 'min:0'],
             'reason' => ['required', 'string', 'max:255'],
             'reference' => ['nullable', 'string', 'max:255'],
@@ -205,10 +209,24 @@ class InventoryController extends Controller
             'adjustment_stock.min' => 'La existencia ajustada no puede ser negativa.',
         ]);
 
-        if ($validated['type'] === 'Ajuste' && ! filled($validated['adjustment_stock'] ?? null)) {
-            throw ValidationException::withMessages([
-                'adjustment_stock' => 'Indica la nueva existencia real para el ajuste.',
-            ]);
+        if ($validated['type'] === 'Ajuste') {
+            if ($calculateAdjustmentFromQuantity && ! filled($validated['adjustment_type'] ?? null)) {
+                throw ValidationException::withMessages([
+                    'adjustment_type' => 'Indica cómo debe aplicarse el ajuste.',
+                ]);
+            }
+
+            if ($calculateAdjustmentFromQuantity && ! filled($validated['quantity'] ?? null)) {
+                throw ValidationException::withMessages([
+                    'quantity' => 'Indica una cantidad para el ajuste.',
+                ]);
+            }
+
+            if (! $calculateAdjustmentFromQuantity && ! filled($validated['adjustment_stock'] ?? null)) {
+                throw ValidationException::withMessages([
+                    'adjustment_stock' => 'Indica la nueva existencia real para el ajuste.',
+                ]);
+            }
         }
 
         if ($validated['type'] !== 'Ajuste' && ! filled($validated['quantity'] ?? null)) {
@@ -217,15 +235,29 @@ class InventoryController extends Controller
             ]);
         }
 
-        DB::transaction(function () use ($validated, $inventoryStock): void {
+        DB::transaction(function () use ($validated, $inventoryStock, $calculateAdjustmentFromQuantity): void {
             $stock = InventoryStock::query()
                 ->lockForUpdate()
                 ->findOrFail($inventoryStock->getKey());
+            $this->ensureStockIsCommerciallyActive($stock);
             $previousStock = (int) $stock->current_stock;
 
             if ($validated['type'] === 'Ajuste') {
-                $resultingStock = (int) $validated['adjustment_stock'];
-                $quantity = abs($resultingStock - $previousStock);
+                if ($calculateAdjustmentFromQuantity) {
+                    $quantity = (int) $validated['quantity'];
+                    $resultingStock = $validated['adjustment_type'] === 'decrease'
+                        ? $previousStock - $quantity
+                        : $previousStock + $quantity;
+                } else {
+                    $resultingStock = (int) $validated['adjustment_stock'];
+                    $quantity = abs($resultingStock - $previousStock);
+                }
+
+                if ($resultingStock === $previousStock) {
+                    throw ValidationException::withMessages([
+                        'adjustment_stock' => 'La existencia indicada es igual al stock actual.',
+                    ]);
+                }
             } else {
                 $quantity = (int) $validated['quantity'];
                 $resultingStock = in_array($validated['type'], ['Entrada', 'Devolución'], true)
@@ -274,12 +306,52 @@ class InventoryController extends Controller
             ->with('status', 'Stock mínimo actualizado correctamente.');
     }
 
+    private function applyStockFilters(
+        Builder $query,
+        string $search,
+        int $categoryId,
+        bool $includeTrashed = false,
+    ): Builder {
+        return $query->whereHas('productVariant', function ($query) use ($search, $categoryId, $includeTrashed): void {
+            if ($includeTrashed) {
+                $query->withTrashed();
+            }
+
+            $query
+                ->when($search !== '', function ($query) use ($search, $includeTrashed): void {
+                    $query->where(function ($query) use ($search, $includeTrashed): void {
+                        $query->where('sku', 'like', "%{$search}%")
+                            ->orWhereHas('product', function ($query) use ($search, $includeTrashed): void {
+                                if ($includeTrashed) {
+                                    $query->withTrashed();
+                                }
+
+                                $query->where('name', 'like', "%{$search}%")
+                                    ->orWhere('code', 'like', "%{$search}%");
+                            });
+                    });
+                })
+                ->when($categoryId > 0, function ($query) use ($categoryId, $includeTrashed): void {
+                    $query->whereHas('product', function ($query) use ($categoryId, $includeTrashed): void {
+                        if ($includeTrashed) {
+                            $query->withTrashed();
+                        }
+
+                        $query->where(function ($query) use ($categoryId): void {
+                            $query->where('category_id', $categoryId)
+                                ->orWhereHas('category', fn ($query) => $query->where('parent_id', $categoryId));
+                        });
+                    });
+                });
+        });
+    }
+
     /**
      * @return array<int, string|\Closure>
      */
-    private function stockRelations(): array
+    private function stockRelations(bool $includeTrashed = false): array
     {
-        return [
+        $relations = [
             'productVariant.size:id,name',
             'productVariant.material:id,name',
             'productVariant.stone:id,name',
@@ -293,6 +365,13 @@ class InventoryController extends Controller
                 ->orderBy('sort_order')
                 ->orderBy('id'),
         ];
+
+        if ($includeTrashed) {
+            $relations['productVariant'] = fn ($query) => $query->withTrashed();
+            $relations['productVariant.product'] = fn ($query) => $query->withTrashed();
+        }
+
+        return $relations;
     }
 
     /**
@@ -305,17 +384,49 @@ class InventoryController extends Controller
             'inventoryStock.productVariant.size:id,name',
             'inventoryStock.productVariant.material:id,name',
             'inventoryStock.productVariant.stone:id,name',
+            'inventoryStock.productVariant.product.baseSize:id,name',
+            'inventoryStock.productVariant.product.material:id,name',
+            'inventoryStock.productVariant.product.productStones.stone:id,name',
             'inventoryStock.productVariant.product.category:id,name,parent_id',
             'inventoryStock.productVariant.product.images' => fn ($query) => $query
                 ->orderByDesc('is_cover')
                 ->orderBy('sort_order')
                 ->orderBy('id'),
+            'inventoryStock.productVariant' => fn ($query) => $query->withTrashed(),
+            'inventoryStock.productVariant.product' => fn ($query) => $query->withTrashed(),
         ];
     }
 
-    private function ensureStockIsVisible(InventoryStock $inventoryStock): void
+    private function ensureStockIsVisible(InventoryStock $inventoryStock, bool $includeTrashed = false): void
     {
+        $inventoryStock->loadMissing($this->stockRelations($includeTrashed));
+
         abort_unless($inventoryStock->productVariant?->product !== null, 404);
+
+        if (! $includeTrashed) {
+            $this->ensureStockIsCommerciallyActive($inventoryStock);
+        }
+    }
+
+    private function ensureStockIsCommerciallyActive(InventoryStock $inventoryStock): void
+    {
+        $inventoryStock->load([
+            'productVariant' => fn ($query) => $query->withTrashed(),
+            'productVariant.product' => fn ($query) => $query->withTrashed(),
+        ]);
+
+        $variant = $inventoryStock->productVariant;
+        $product = $variant?->product;
+
+        abort_unless(
+            $variant !== null
+                && $product !== null
+                && ! $variant->trashed()
+                && ! $product->trashed()
+                && $variant->status === 'active'
+                && $product->status === 'active',
+            404,
+        );
     }
 
     /**
@@ -324,23 +435,26 @@ class InventoryController extends Controller
     private function stockRow(InventoryStock $inventoryStock): array
     {
         $variant = $inventoryStock->productVariant;
-        $product = $variant->product;
+        $product = $variant?->product;
         $currentStock = (int) $inventoryStock->current_stock;
+        $isOutOfCatalog = (bool) ($variant?->trashed() || $product?->trashed());
         [$stockStatus, $stockStatusClass] = match (true) {
             $currentStock <= 0 => ['Sin stock', 'text-aurea-danger'],
+            $isOutOfCatalog => ['Con existencias', 'text-[#5b8668]'],
             default => ['Disponible', 'text-[#5b8668]'],
         };
 
         return [
-            'product' => $product->name,
+            'product' => $product?->name ?? 'Producto eliminado',
             'variant' => $this->variantLabel($variant),
-            'sku' => $variant->sku,
-            'category' => $product->category?->parent?->name
-                ?? $product->category?->name
+            'sku' => $variant?->sku ?? '—',
+            'category' => $product?->category?->parent?->name
+                ?? $product?->category?->name
                 ?? '—',
             'current_stock' => $currentStock,
             'stock_status' => $stockStatus,
             'stock_status_class' => $stockStatusClass,
+            'is_out_of_catalog' => $isOutOfCatalog,
             'image' => $this->imagePath($product),
             'inventory_stock_id' => $inventoryStock->id,
         ];
@@ -351,8 +465,8 @@ class InventoryController extends Controller
      */
     private function movementRow(InventoryMovement $movement): array
     {
-        $variant = $movement->inventoryStock->productVariant;
-        $product = $variant->product;
+        $variant = $movement->inventoryStock?->productVariant;
+        $product = $variant?->product;
         $delta = match ($movement->type) {
             'Entrada', 'Devolución' => $movement->quantity,
             'Salida' => -$movement->quantity,
@@ -361,9 +475,9 @@ class InventoryController extends Controller
         };
 
         return [
-            'product' => $product->name,
+            'product' => $product?->name ?? 'Producto eliminado',
             'variant' => $this->variantLabel($variant),
-            'sku' => $variant->sku,
+            'sku' => $variant?->sku ?? '—',
             'type' => $movement->type,
             'quantity_label' => sprintf('%+d', $delta),
             'quantity_class' => $delta < 0 ? 'text-aurea-danger' : 'text-[#5b8668]',
@@ -384,9 +498,17 @@ class InventoryController extends Controller
         ];
     }
 
-    private function variantLabel(ProductVariant $variant): string
+    private function variantLabel(?ProductVariant $variant): string
     {
+        if ($variant === null) {
+            return 'Variante eliminada';
+        }
+
         $product = $variant->product;
+
+        if ($product === null) {
+            return $variant->sku ?: 'Variante eliminada';
+        }
         $size = $variant->size?->name ?? $product->baseSize?->name;
         $material = $variant->material?->name ?? $product->material?->name;
         $karat = $variant->karat ?? $product->karat;
@@ -402,8 +524,12 @@ class InventoryController extends Controller
         ])->filter()->join(' / ') ?: '—';
     }
 
-    private function imagePath(Product $product): ?string
+    private function imagePath(?Product $product): ?string
     {
+        if ($product === null) {
+            return null;
+        }
+
         $image = $product->images->first();
 
         return $image !== null

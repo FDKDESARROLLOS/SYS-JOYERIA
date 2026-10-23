@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\Category;
 use App\Models\Collection;
+use App\Models\InventoryMovement;
 use App\Models\InventoryStock;
 use App\Models\Material;
 use App\Models\Product;
@@ -1712,6 +1713,251 @@ class ProductTest extends TestCase
         $this->assertDatabaseHas('product_variants', ['id' => $variant->id, 'product_id' => $product->id]);
         $this->assertDatabaseHas('inventory_stocks', ['product_variant_id' => $variant->id]);
         $this->assertFileExists($imagePath);
+    }
+
+    public function test_product_with_stock_exposes_catalog_removal_warning_and_preserves_inventory_history(): void
+    {
+        $admin = User::factory()->create();
+        $category = $this->createCategory();
+        $product = Product::create($this->productPayload($category));
+        $image = $this->createProductImage($product, 0, ['path' => 'stock-product.jpg']);
+        $variant = ProductVariant::create([
+            'product_id' => $product->id,
+            'sku' => 'STOCK-PRODUCT-1',
+            'status' => 'active',
+        ]);
+        $stock = InventoryStock::create([
+            'product_variant_id' => $variant->id,
+            'current_stock' => 10,
+            'minimum_stock' => 0,
+        ]);
+        $movement = InventoryMovement::create([
+            'inventory_stock_id' => $stock->id,
+            'type' => 'Entrada',
+            'quantity' => 10,
+            'previous_stock' => 0,
+            'resulting_stock' => 10,
+            'reason' => 'Carga inicial',
+            'movement_at' => now(),
+        ]);
+        File::ensureDirectoryExists($this->testUploadDirectory);
+        $imagePath = $this->testUploadDirectory.'/stock-product.jpg';
+        File::put($imagePath, 'catalog image');
+
+        $this->actingAs($admin)
+            ->get(route('products.index'))
+            ->assertSee('data-delete-stock="10"', false);
+
+        $this->actingAs($admin)
+            ->delete(route('products.destroy', $product))
+            ->assertRedirect(route('products.index'))
+            ->assertSessionHas('status', 'Producto retirado del catálogo. Se conservaron 10 existencias físicas.');
+
+        $this->assertSoftDeleted('products', ['id' => $product->id]);
+        $this->assertDatabaseHas('product_variants', ['id' => $variant->id, 'product_id' => $product->id]);
+        $this->assertDatabaseHas('inventory_stocks', [
+            'id' => $stock->id,
+            'current_stock' => 10,
+        ]);
+        $this->assertDatabaseHas('inventory_movements', ['id' => $movement->id, 'inventory_stock_id' => $stock->id]);
+        $this->assertDatabaseHas('product_images', ['id' => $image->id, 'product_id' => $product->id]);
+        $this->assertFileExists($imagePath);
+    }
+
+    public function test_deleted_products_are_listed_in_the_trash_but_active_products_are_not(): void
+    {
+        $admin = User::factory()->create();
+        $category = $this->createCategory();
+        $deletedProduct = Product::create($this->productPayload($category, null, null, null, [
+            'name' => 'Producto en papelera',
+            'code' => 'TRASH-001',
+            'base_sku' => 'TRASH-001',
+        ]));
+        $activeProduct = Product::create($this->productPayload($category, null, null, null, [
+            'name' => 'Producto activo',
+            'code' => 'ACTIVE-001',
+            'base_sku' => 'ACTIVE-001',
+        ]));
+        $variant = ProductVariant::create([
+            'product_id' => $deletedProduct->id,
+            'sku' => 'TRASH-VARIANT',
+            'status' => 'active',
+        ]);
+        InventoryStock::create([
+            'product_variant_id' => $variant->id,
+            'current_stock' => 6,
+            'minimum_stock' => 0,
+        ]);
+        $deletedProduct->delete();
+
+        $response = $this->actingAs($admin)->get(route('products.deleted'));
+
+        $response
+            ->assertOk()
+            ->assertViewIs('products.deleted')
+            ->assertSee('Producto en papelera')
+            ->assertSee('TRASH-001')
+            ->assertSee('6')
+            ->assertDontSee('Producto activo')
+            ->assertViewHas('products', function ($products) use ($deletedProduct, $activeProduct): bool {
+                return $products->contains('id', $deletedProduct->id)
+                    && ! $products->contains('id', $activeProduct->id);
+            });
+    }
+
+    public function test_admin_can_reach_the_trash_from_products_and_restore_a_deleted_product(): void
+    {
+        $admin = User::factory()->create();
+        $product = Product::create($this->productPayload($this->createCategory(), null, null, null, [
+            'name' => 'Producto visible en papelera',
+            'code' => 'TRASH-LINK-001',
+            'base_sku' => 'TRASH-LINK-001',
+        ]));
+        $product->delete();
+
+        $this->actingAs($admin)
+            ->get(route('products.index'))
+            ->assertOk()
+            ->assertSee('Productos eliminados')
+            ->assertSee('href="'.route('products.deleted').'"', false);
+
+        $this->actingAs($admin)
+            ->get(route('products.deleted'))
+            ->assertOk()
+            ->assertSee('Productos eliminados')
+            ->assertSee('Papelera')
+            ->assertSee('Volver a productos')
+            ->assertSee('action="'.route('products.restore', $product).'"', false)
+            ->assertSee('Restaurar')
+            ->assertSee('name="_token"', false)
+            ->assertSee('name="_method" value="PATCH"', false);
+    }
+
+    public function test_products_trash_uses_the_existing_empty_state_when_there_are_no_deleted_products(): void
+    {
+        $admin = User::factory()->create();
+
+        $this->actingAs($admin)
+            ->get(route('products.deleted'))
+            ->assertOk()
+            ->assertSee('No hay productos eliminados')
+            ->assertSee('Los productos retirados del catálogo aparecerán aquí.');
+    }
+
+    public function test_restoring_a_product_preserves_stock_history_variants_and_returns_it_to_catalog(): void
+    {
+        $admin = User::factory()->create();
+        $category = $this->createCategory();
+        $product = Product::create($this->productPayload($category, null, null, null, [
+            'name' => 'Producto restaurable',
+            'code' => 'RESTORE-001',
+            'base_sku' => 'RESTORE-001',
+            'status' => 'active',
+        ]));
+        $variant = ProductVariant::create([
+            'product_id' => $product->id,
+            'sku' => 'RESTORE-VARIANT',
+            'status' => 'active',
+        ]);
+        $stock = InventoryStock::create([
+            'product_variant_id' => $variant->id,
+            'current_stock' => 10,
+            'minimum_stock' => 0,
+        ]);
+        $movement = InventoryMovement::create([
+            'inventory_stock_id' => $stock->id,
+            'type' => 'Entrada',
+            'quantity' => 10,
+            'previous_stock' => 0,
+            'resulting_stock' => 10,
+            'reason' => 'Carga inicial',
+            'movement_at' => now(),
+        ]);
+
+        $product->delete();
+
+        $this->actingAs($admin)
+            ->patch(route('products.restore', $product))
+            ->assertRedirect(route('products.deleted'))
+            ->assertSessionHas('status', 'Producto restaurado correctamente.');
+
+        $this->assertDatabaseHas('products', ['id' => $product->id, 'deleted_at' => null]);
+        $this->assertDatabaseHas('product_variants', ['id' => $variant->id, 'product_id' => $product->id]);
+        $this->assertDatabaseHas('inventory_stocks', ['id' => $stock->id, 'current_stock' => 10]);
+        $this->assertDatabaseHas('inventory_movements', ['id' => $movement->id]);
+
+        $this->actingAs($admin)
+            ->get(route('products.index'))
+            ->assertSee('Producto restaurable');
+        $this->actingAs($admin)
+            ->get(route('inventory.stock'))
+            ->assertViewHas('inventoryRows', function ($rows) use ($stock): bool {
+                return $rows->contains('inventory_stock_id', $stock->id)
+                    && ! $rows->contains('is_out_of_catalog', true);
+            });
+    }
+
+    public function test_restoring_a_product_does_not_restore_a_variant_that_was_already_deleted(): void
+    {
+        $admin = User::factory()->create();
+        $product = Product::create($this->productPayload($this->createCategory()));
+        $variant = ProductVariant::create([
+            'product_id' => $product->id,
+            'sku' => 'DELETED-VARIANT-RESTORE',
+            'status' => 'active',
+        ]);
+
+        $variant->delete();
+        $product->delete();
+
+        $this->actingAs($admin)->patch(route('products.restore', $product));
+
+        $this->assertNotNull(Product::find($product->id));
+        $this->assertSoftDeleted('product_variants', ['id' => $variant->id]);
+    }
+
+    public function test_technical_users_cannot_delete_restore_or_view_product_trash(): void
+    {
+        $technical = User::factory()->create(['role' => 'technical']);
+        $category = $this->createCategory();
+        $product = Product::create($this->productPayload($category));
+        $product->delete();
+        $activeProduct = Product::create($this->productPayload($category, null, null, null, [
+            'code' => 'TECHNICAL-DELETE-001',
+            'base_sku' => 'TECHNICAL-DELETE-001',
+            'slug' => 'technical-delete-001',
+        ]));
+
+        $this->actingAs($technical)
+            ->get(route('products.index'))
+            ->assertForbidden();
+        $this->actingAs($technical)
+            ->get(route('products.create'))
+            ->assertForbidden();
+        $this->actingAs($technical)
+            ->get(route('products.edit', $activeProduct))
+            ->assertForbidden();
+        $this->actingAs($technical)
+            ->get(route('products.code-suggestion', ['name' => 'Anillo', 'category_id' => $category->id]))
+            ->assertForbidden();
+        $this->actingAs($technical)
+            ->post(route('products.store'), [])
+            ->assertForbidden();
+        $this->actingAs($technical)
+            ->patch(route('products.update', $activeProduct), [])
+            ->assertForbidden();
+        $this->actingAs($technical)
+            ->patch(route('products.images.reorder', $activeProduct), [])
+            ->assertForbidden();
+        $this->actingAs($technical)
+            ->get(route('products.deleted'))
+            ->assertForbidden();
+        $this->actingAs($technical)
+            ->delete(route('products.destroy', $activeProduct))
+            ->assertForbidden();
+        $this->actingAs($technical)
+            ->patch(route('products.restore', $product))
+            ->assertForbidden();
     }
 
     public function test_updating_product_data_without_multimedia_changes_preserves_the_image_file(): void

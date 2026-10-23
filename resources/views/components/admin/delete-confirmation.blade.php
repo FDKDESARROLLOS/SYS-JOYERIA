@@ -16,7 +16,7 @@
             </div>
             <div>
                 <h2 id="delete-confirmation-title" class="font-serif text-xl text-aurea-ink">¿Eliminar este registro?</h2>
-                <p id="delete-confirmation-description" class="mt-2 text-sm leading-6 text-aurea-muted">Esta acción eliminará el registro. ¿Deseas continuar?</p>
+        <p id="delete-confirmation-description" class="mt-2 text-sm leading-6 text-aurea-muted">Esta acción eliminará el registro. ¿Deseas continuar?</p>
             </div>
         </div>
         <div class="mt-6 flex justify-end gap-2">

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\InventoryStock;
 use App\Models\Material;
 use App\Models\Product;
 use App\Models\ProductImage;
@@ -47,6 +48,38 @@ class ProductVariantController extends Controller
             'product' => $this->productContext($product),
             'productModel' => $product,
             'productVariants' => $productVariants,
+        ]);
+    }
+
+    public function deleted(Product $product): View
+    {
+        $product->load([
+            'category.parent',
+            'material' => fn ($query) => $query->withTrashed()->select(['id', 'name']),
+            'baseSize' => fn ($query) => $query->withTrashed()->select(['id', 'name']),
+            'productStones.stone' => fn ($query) => $query->withTrashed()->select(['id', 'name']),
+            'images' => fn ($query) => $query
+                ->orderByDesc('is_cover')
+                ->orderBy('sort_order')
+                ->orderBy('id'),
+        ]);
+
+        $deletedVariants = $product->variants()
+            ->onlyTrashed()
+            ->with([
+                'size' => fn ($query) => $query->withTrashed()->select(['id', 'name']),
+                'material' => fn ($query) => $query->withTrashed()->select(['id', 'name']),
+                'stone' => fn ($query) => $query->withTrashed()->select(['id', 'name']),
+                'inventoryStock:id,product_variant_id,current_stock',
+            ])
+            ->latest('deleted_at')
+            ->latest('id')
+            ->paginate(10);
+
+        return view('products.variants.deleted', [
+            'product' => $this->productContext($product),
+            'productModel' => $product,
+            'productVariants' => $deletedVariants,
         ]);
     }
 
@@ -122,11 +155,84 @@ class ProductVariantController extends Controller
     public function destroy(Product $product, ProductVariant $variant): RedirectResponse
     {
         $this->ensureVariantBelongsToProduct($product, $variant);
-        $variant->delete();
+        $currentStock = 0;
+
+        DB::transaction(function () use ($variant, &$currentStock): void {
+            $currentStock = (int) (InventoryStock::query()
+                ->where('product_variant_id', $variant->id)
+                ->lockForUpdate()
+                ->value('current_stock') ?? 0);
+
+            $variant->delete();
+        });
 
         return redirect()
             ->route('products.variants.index', $product)
-            ->with('status', 'Variante eliminada correctamente.');
+            ->with(
+                'status',
+                $currentStock > 0
+                    ? "Variante retirada del catálogo. Se conservaron {$currentStock} existencias físicas."
+                    : 'Variante eliminada correctamente.',
+            );
+    }
+
+    public function restore(Product $product, ProductVariant $variant): RedirectResponse
+    {
+        $this->ensureVariantBelongsToProduct($product, $variant);
+        abort_unless($variant->trashed(), 404);
+
+        $restoreError = DB::transaction(function () use ($product, $variant): ?string {
+            if ($product->trashed()) {
+                return 'parent';
+            }
+
+            $skuConflictExists = ProductVariant::query()
+                ->where('sku', $variant->sku)
+                ->whereKeyNot($variant->getKey())
+                ->exists();
+
+            if ($skuConflictExists) {
+                return 'sku';
+            }
+
+            $combination = [
+                'size_id' => $variant->size_id,
+                'material_id' => $variant->material_id,
+                'stone_id' => $variant->stone_id,
+                'karat' => $variant->karat,
+                'metal_color' => $variant->metal_color,
+            ];
+
+            if ($this->combinationExists($product, $combination, $variant)) {
+                return 'combination';
+            }
+
+            $variant->restore();
+
+            return null;
+        });
+
+        if ($restoreError === 'parent') {
+            return redirect()
+                ->route('products.index')
+                ->with('error', 'No se puede restaurar la variante porque su producto está eliminado.');
+        }
+
+        if ($restoreError === 'sku') {
+            return redirect()
+                ->route('products.variants.deleted', $product)
+                ->with('error', 'No se puede restaurar la variante porque su SKU ya está en uso.');
+        }
+
+        if ($restoreError === 'combination') {
+            return redirect()
+                ->route('products.variants.deleted', $product)
+                ->with('error', 'No se puede restaurar esta variante porque ya existe una variante activa con las mismas características.');
+        }
+
+        return redirect()
+            ->route('products.variants.index', $product)
+            ->with('status', 'Variante restaurada correctamente.');
     }
 
     /**

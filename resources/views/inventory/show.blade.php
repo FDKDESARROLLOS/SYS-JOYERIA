@@ -15,13 +15,19 @@
                 class="aurea-focus inline-flex items-center justify-center rounded-lg border border-[#dfe2dc] px-4 py-2.5 text-sm font-medium text-[#68736c] hover:border-aurea-gold hover:text-aurea-focus">
                 Volver a movimientos
             </a>
-            <a href="{{ route('inventory.movements.create', ['variant' => $inventoryStock->id]) }}"
-                class="aurea-focus inline-flex w-fit items-center gap-2 rounded-lg bg-aurea-gold px-4 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-[#9f793f]">
-                <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true">
-                    <path d="M12 5v14M5 12h14" />
-                </svg>
-                Nuevo movimiento
-            </a>
+            @if ($inventoryRow['is_out_of_catalog'])
+                <p class="max-w-xs text-right text-xs text-[#947142]">
+                    Este artículo está fuera de catálogo. El inventario se conserva solo para consulta.
+                </p>
+            @else
+                <a href="{{ route('inventory.movements.create', ['variant' => $inventoryStock->id]) }}"
+                    class="aurea-focus inline-flex w-fit items-center gap-2 rounded-lg bg-aurea-gold px-4 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-[#9f793f]">
+                    <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true">
+                        <path d="M12 5v14M5 12h14" />
+                    </svg>
+                    Nuevo movimiento
+                </a>
+            @endif
         </x-slot:actions>
     </x-admin.page-header>
 

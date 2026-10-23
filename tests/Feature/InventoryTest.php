@@ -188,6 +188,237 @@ class InventoryTest extends TestCase
             });
     }
 
+    public function test_active_variant_with_stock_appears_in_inventory(): void
+    {
+        $admin = User::factory()->create();
+        $category = $this->createCategory();
+        $stock = $this->createStock($category, [
+            'sku' => 'ACTIVE-STOCK',
+            'current_stock' => 3,
+        ]);
+
+        $response = $this->actingAs($admin)->get(route('inventory.stock'));
+
+        $response
+            ->assertOk()
+            ->assertDontSee('Fuera de catálogo')
+            ->assertViewHas('inventoryRows', function ($rows) use ($stock): bool {
+                $row = $rows->firstWhere('inventory_stock_id', $stock->id);
+
+                return $row !== null
+                    && $row['stock_status'] === 'Disponible'
+                    && $row['is_out_of_catalog'] === false;
+            });
+    }
+
+    public function test_inventory_active_list_excludes_non_commercial_product_and_variant_states(): void
+    {
+        $admin = User::factory()->create();
+        $category = $this->createCategory();
+        $active = $this->createStock($category, ['sku' => 'ACTIVE-COMMERCIAL']);
+        $draftProduct = $this->createStock($category, [
+            'sku' => 'DRAFT-PRODUCT',
+            'product_status' => 'draft',
+        ]);
+        $inactiveProduct = $this->createStock($category, [
+            'sku' => 'INACTIVE-PRODUCT',
+            'product_status' => 'inactive',
+        ]);
+        $draftVariant = $this->createStock($category, [
+            'sku' => 'DRAFT-VARIANT',
+            'variant_status' => 'draft',
+        ]);
+        $inactiveVariant = $this->createStock($category, [
+            'sku' => 'INACTIVE-VARIANT',
+            'variant_status' => 'inactive',
+        ]);
+
+        $response = $this->actingAs($admin)->get(route('inventory.stock'));
+
+        $response
+            ->assertOk()
+            ->assertViewHas('inventoryRows', function ($rows) use ($active, $draftProduct, $inactiveProduct, $draftVariant, $inactiveVariant): bool {
+                return $rows->contains('inventory_stock_id', $active->id)
+                    && ! $rows->contains('inventory_stock_id', $draftProduct->id)
+                    && ! $rows->contains('inventory_stock_id', $inactiveProduct->id)
+                    && ! $rows->contains('inventory_stock_id', $draftVariant->id)
+                    && ! $rows->contains('inventory_stock_id', $inactiveVariant->id);
+            })
+            ->assertSee('ACTIVE-COMMERCIAL')
+            ->assertDontSee('DRAFT-PRODUCT')
+            ->assertDontSee('INACTIVE-PRODUCT')
+            ->assertDontSee('DRAFT-VARIANT')
+            ->assertDontSee('INACTIVE-VARIANT');
+
+        $selectorResponse = $this->actingAs($admin)->get(route('inventory.movements.create'));
+
+        $selectorResponse
+            ->assertSee('ACTIVE-COMMERCIAL')
+            ->assertDontSee('DRAFT-PRODUCT')
+            ->assertDontSee('INACTIVE-PRODUCT')
+            ->assertDontSee('DRAFT-VARIANT')
+            ->assertDontSee('INACTIVE-VARIANT');
+
+        $this->actingAs($admin)
+            ->post(route('inventory.movements.store'), $this->movementPayload([
+                'inventory_stock_id' => $inactiveVariant->id,
+            ]))
+            ->assertNotFound();
+
+        $this->assertDatabaseMissing('inventory_movements', [
+            'inventory_stock_id' => $inactiveVariant->id,
+        ]);
+    }
+
+    public function test_soft_deleted_variant_with_zero_stock_is_not_shown_in_inventory(): void
+    {
+        $admin = User::factory()->create();
+        $stock = $this->createStock($this->createCategory(), [
+            'sku' => 'DELETED-VARIANT-EMPTY',
+            'current_stock' => 0,
+        ]);
+
+        $stock->productVariant->delete();
+
+        $response = $this->actingAs($admin)->get(route('inventory.stock'));
+
+        $response->assertOk()->assertViewHas('inventoryStocks', function ($stocks) use ($stock): bool {
+            return ! $stocks->contains('id', $stock->id);
+        });
+    }
+
+    public function test_soft_deleted_variant_with_positive_stock_is_shown_as_archived(): void
+    {
+        $admin = User::factory()->create();
+        $stock = $this->createStock($this->createCategory(), [
+            'sku' => 'DELETED-VARIANT-STOCK',
+            'current_stock' => 4,
+        ]);
+
+        $stock->productVariant->delete();
+
+        $response = $this->actingAs($admin)->get(route('inventory.stock'));
+
+        $response
+            ->assertOk()
+            ->assertSee('Existencias fuera de catálogo')
+            ->assertViewHas('inventoryRows', function ($rows) use ($stock): bool {
+                return ! $rows->contains('inventory_stock_id', $stock->id);
+            })
+            ->assertViewHas('archivedInventoryRows', function ($rows) use ($stock): bool {
+                $row = $rows->firstWhere('inventory_stock_id', $stock->id);
+
+                return $row !== null
+                    && $row['sku'] === 'DELETED-VARIANT-STOCK'
+                    && $row['current_stock'] === 4
+                    && $row['stock_status'] === 'Con existencias'
+                    && $row['is_out_of_catalog'] === true;
+            });
+
+        $this->actingAs($admin)
+            ->get(route('inventory.movements.show', $stock))
+            ->assertOk()
+            ->assertSee('DELETED-VARIANT-STOCK')
+            ->assertSee('Este artículo está fuera de catálogo. El inventario se conserva solo para consulta.')
+            ->assertDontSee('Nuevo movimiento');
+
+        $this->actingAs($admin)
+            ->post(route('inventory.movements.variant-store', $stock), $this->movementPayload())
+            ->assertNotFound();
+
+        $this->assertDatabaseCount('inventory_movements', 0);
+    }
+
+    public function test_soft_deleted_product_with_positive_stock_is_shown_safely(): void
+    {
+        $admin = User::factory()->create();
+        $category = $this->createCategory();
+        $stock = $this->createStock($category, [
+            'product_name' => 'Producto archivado',
+            'sku' => 'DELETED-PRODUCT-STOCK',
+            'current_stock' => 2,
+        ]);
+
+        $stock->productVariant->product->delete();
+
+        $response = $this->actingAs($admin)->get(route('inventory.stock'));
+
+        $response
+            ->assertOk()
+            ->assertSee('Producto archivado')
+            ->assertSee('Existencias fuera de catálogo')
+            ->assertViewHas('inventoryRows', function ($rows) use ($stock): bool {
+                return ! $rows->contains('inventory_stock_id', $stock->id);
+            })
+            ->assertViewHas('archivedInventoryRows', function ($rows) use ($stock): bool {
+                $row = $rows->firstWhere('inventory_stock_id', $stock->id);
+
+                return $row !== null
+                    && $row['category'] !== '—'
+                    && $row['stock_status'] === 'Con existencias'
+                    && $row['is_out_of_catalog'] === true;
+            });
+    }
+
+    public function test_active_and_out_of_catalog_inventory_are_separated_and_archived_filters_work(): void
+    {
+        $admin = User::factory()->create();
+        $category = $this->createCategory();
+        $otherCategory = $this->createCategory();
+        $activeStock = $this->createStock($category, [
+            'sku' => 'ACTIVE-SEPARATED',
+            'current_stock' => 2,
+        ]);
+        $archivedStock = $this->createStock($category, [
+            'sku' => 'ARCHIVED-SEPARATED',
+            'current_stock' => 3,
+        ]);
+        $archivedStock->productVariant->delete();
+        $otherArchivedStock = $this->createStock($otherCategory, [
+            'sku' => 'ARCHIVED-OTHER-CATEGORY',
+            'current_stock' => 4,
+        ]);
+        $otherArchivedStock->productVariant->delete();
+
+        $response = $this->actingAs($admin)
+            ->get(route('inventory.stock', ['search' => 'ARCHIVED-SEPARATED']));
+
+        $response
+            ->assertOk()
+            ->assertSee('Existencias fuera de catálogo')
+            ->assertViewHas('inventoryRows', function ($rows) use ($activeStock): bool {
+                return ! $rows->contains('inventory_stock_id', $activeStock->id);
+            })
+            ->assertViewHas('archivedInventoryRows', function ($rows) use ($archivedStock): bool {
+                return $rows->contains('inventory_stock_id', $archivedStock->id);
+            });
+
+        $categoryResponse = $this->actingAs($admin)
+            ->get(route('inventory.stock', ['category_id' => $category->id]));
+
+        $categoryResponse->assertViewHas('archivedInventoryRows', function ($rows) use (
+            $archivedStock,
+            $otherArchivedStock,
+        ): bool {
+            return $rows->contains('inventory_stock_id', $archivedStock->id)
+                && ! $rows->contains('inventory_stock_id', $otherArchivedStock->id);
+        });
+
+        $allRowsResponse = $this->actingAs($admin)->get(route('inventory.stock'));
+        $allRowsResponse->assertViewHas('inventoryRows', function ($rows) use ($activeStock, $archivedStock): bool {
+            return $rows->contains('inventory_stock_id', $activeStock->id)
+                && ! $rows->contains('inventory_stock_id', $archivedStock->id);
+        })->assertViewHas('archivedInventoryRows', function ($rows) use ($activeStock, $archivedStock): bool {
+            return $rows->contains('inventory_stock_id', $archivedStock->id)
+                && ! $rows->contains('inventory_stock_id', $activeStock->id);
+        });
+
+        $activeIds = $allRowsResponse->viewData('inventoryRows')->pluck('inventory_stock_id');
+        $archivedIds = $allRowsResponse->viewData('archivedInventoryRows')->pluck('inventory_stock_id');
+
+        $this->assertEmpty($activeIds->intersect($archivedIds));
+    }
+
     public function test_inventory_detail_shows_history_and_effective_stock_data(): void
     {
         $admin = User::factory()->create();
@@ -311,6 +542,9 @@ class InventoryTest extends TestCase
                     && $movements->total() === 11
                     && $movements->first()->relationLoaded('inventoryStock')
                     && $movements->first()->inventoryStock->productVariant->relationLoaded('product')
+                    && $movements->first()->inventoryStock->productVariant->product->relationLoaded('baseSize')
+                    && $movements->first()->inventoryStock->productVariant->product->relationLoaded('material')
+                    && $movements->first()->inventoryStock->productVariant->product->relationLoaded('productStones')
                     && $movements->first()->user->exists;
             })
             ->assertViewHas('movementRows')
@@ -353,6 +587,39 @@ class InventoryTest extends TestCase
             ->assertSee('+5')
             ->assertSee('-2')
             ->assertSee('Lucía Mendoza');
+    }
+
+    public function test_historical_movements_remain_visible_after_product_or_variant_soft_deletion(): void
+    {
+        $admin = User::factory()->create();
+        $category = $this->createCategory();
+        $deletedProductStock = $this->createStock($category, ['sku' => 'HISTORICAL-PRODUCT']);
+        $deletedVariantStock = $this->createStock($category, ['sku' => 'HISTORICAL-VARIANT']);
+
+        $deletedProductStock->movements()->create($this->movementPayload([
+            'previous_stock' => 0,
+            'resulting_stock' => 1,
+            'reason' => 'Producto eliminado',
+            'reference' => 'HIST-PRODUCT',
+        ]));
+        $deletedVariantStock->movements()->create($this->movementPayload([
+            'previous_stock' => 0,
+            'resulting_stock' => 1,
+            'reason' => 'Variante eliminada',
+            'reference' => 'HIST-VARIANT',
+        ]));
+
+        $deletedProductStock->productVariant->product->delete();
+        $deletedVariantStock->productVariant->delete();
+
+        $response = $this->actingAs($admin)->get(route('inventory.movements.index'));
+
+        $response
+            ->assertOk()
+            ->assertSee('HIST-PRODUCT')
+            ->assertSee('HIST-VARIANT')
+            ->assertSee('Producto eliminado')
+            ->assertSee('HISTORICAL-VARIANT');
     }
 
     public function test_entry_updates_stock_and_records_the_authenticated_user(): void
@@ -528,6 +795,52 @@ class InventoryTest extends TestCase
         ]);
     }
 
+    public function test_adjustment_from_create_uses_the_current_stock_inside_the_operation(): void
+    {
+        $admin = User::factory()->create();
+        $stock = $this->createStock($this->createCategory(), ['current_stock' => 4]);
+
+        $this->actingAs($admin)
+            ->post(route('inventory.movements.store'), [
+                'inventory_stock_id' => $stock->id,
+                'type' => 'Ajuste',
+                'quantity' => 2,
+                'adjustment_type' => 'increase',
+                'reason' => 'Ajuste desde formulario',
+                'movement_at' => now()->format('Y-m-d H:i:s'),
+            ])
+            ->assertRedirect(route('inventory.movements.show', $stock));
+
+        $this->assertDatabaseHas('inventory_stocks', [
+            'id' => $stock->id,
+            'current_stock' => 6,
+        ]);
+        $this->assertDatabaseHas('inventory_movements', [
+            'inventory_stock_id' => $stock->id,
+            'previous_stock' => 4,
+            'quantity' => 2,
+            'resulting_stock' => 6,
+        ]);
+    }
+
+    public function test_adjustment_with_the_current_stock_is_rejected_without_creating_a_movement(): void
+    {
+        $admin = User::factory()->create();
+        $stock = $this->createStock($this->createCategory(), ['current_stock' => 4]);
+
+        $this->actingAs($admin)
+            ->post(route('inventory.movements.variant-store', $stock), $this->movementPayload([
+                'type' => 'Ajuste',
+                'adjustment_stock' => 4,
+            ]))
+            ->assertSessionHasErrors([
+                'adjustment_stock' => 'La existencia indicada es igual al stock actual.',
+            ]);
+
+        $this->assertDatabaseHas('inventory_stocks', ['id' => $stock->id, 'current_stock' => 4]);
+        $this->assertDatabaseCount('inventory_movements', 0);
+    }
+
     public function test_minimum_stock_can_be_updated_without_creating_a_movement(): void
     {
         $admin = User::factory()->create();
@@ -571,6 +884,39 @@ class InventoryTest extends TestCase
             ->assertRedirect(route('login'));
     }
 
+    public function test_technical_users_cannot_access_or_modify_inventory(): void
+    {
+        $technical = User::factory()->create(['role' => 'technical']);
+        $stock = $this->createStock($this->createCategory());
+
+        $this->actingAs($technical)
+            ->get(route('dashboard'))
+            ->assertForbidden();
+        $this->actingAs($technical)
+            ->get(route('settings.errors'))
+            ->assertOk();
+        $this->actingAs($technical)->get(route('inventory.stock'))->assertForbidden();
+        $this->actingAs($technical)->get(route('inventory.movements.index'))->assertForbidden();
+        $this->actingAs($technical)->get(route('inventory.movements.show', $stock))->assertForbidden();
+        $this->actingAs($technical)->get(route('inventory.movements.create'))->assertForbidden();
+        $this->actingAs($technical)
+            ->post(route('inventory.movements.store'), ['inventory_stock_id' => $stock->id])
+            ->assertForbidden();
+        $this->actingAs($technical)
+            ->post(route('inventory.movements.variant-store', $stock), $this->movementPayload())
+            ->assertForbidden();
+        $this->actingAs($technical)
+            ->patch(route('inventory.minimum-stock.update', $stock), ['minimum_stock' => 5])
+            ->assertForbidden();
+
+        $this->assertDatabaseHas('inventory_stocks', [
+            'id' => $stock->id,
+            'current_stock' => 0,
+            'minimum_stock' => 0,
+        ]);
+        $this->assertDatabaseCount('inventory_movements', 0);
+    }
+
     /**
      * @param  array<string, mixed>  $overrides
      * @return array<string, mixed>
@@ -610,12 +956,12 @@ class InventoryTest extends TestCase
             'base_sku' => $overrides['base_sku'] ?? 'SKU-'.$suffix,
             'slug' => 'producto-'.$suffix,
             'price' => '1250.00',
-            'status' => 'active',
+            'status' => $overrides['product_status'] ?? 'active',
         ]);
         $variant = ProductVariant::create([
             'product_id' => $product->id,
             'sku' => $overrides['sku'] ?? 'VAR-'.$suffix,
-            'status' => 'active',
+            'status' => $overrides['variant_status'] ?? 'active',
         ]);
 
         return InventoryStock::create([

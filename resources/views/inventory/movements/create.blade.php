@@ -208,16 +208,19 @@
             const signedQuantity = quantity * direction;
             const resultingStock = stock + signedQuantity;
             const exceedsAvailableStock = resultingStock < 0;
+            const adjustmentHasNoChange = isAdjustment && resultingStock === stock;
 
             adjustmentStock.value = isAdjustment ? resultingStock : '';
 
             previewMovement.textContent = `${signedQuantity > 0 ? '+' : ''}${signedQuantity}`;
             previewResultingStock.textContent = exceedsAvailableStock ? '—' : resultingStock;
-            stockValidation.textContent = exceedsAvailableStock ?
-                'La cantidad no puede superar el stock disponible.' :
-                '';
-            stockValidation.classList.toggle('hidden', !exceedsAvailableStock);
-            registerMovement.disabled = exceedsAvailableStock;
+            stockValidation.textContent = exceedsAvailableStock
+                ? 'La cantidad no puede superar el stock disponible.'
+                : adjustmentHasNoChange
+                    ? 'La existencia indicada es igual al stock actual.'
+                    : '';
+            stockValidation.classList.toggle('hidden', !exceedsAvailableStock && !adjustmentHasNoChange);
+            registerMovement.disabled = exceedsAvailableStock || adjustmentHasNoChange;
         };
 
         [movementType, inventoryItem, movementQuantity, adjustmentType, movementReason, movementDate].forEach((field) => {
