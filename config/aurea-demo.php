@@ -1328,22 +1328,6 @@ return [
         'shipping_cost' => null,
     ],
 
-    'payment_settings' => [
-        'stripe' => [
-            'enabled' => true,
-            'mode' => 'Pruebas',
-            'public_key' => 'pk_test_aurea_demo',
-            'secret_key' => 'sk_test_aurea_demo',
-            'webhook_secret' => 'whsec_aurea_demo',
-        ],
-        'paypal' => [
-            'enabled' => false,
-            'mode' => 'Sandbox',
-            'client_id' => 'aurea-demo-client-id',
-            'client_secret' => 'aurea-demo-client-secret',
-        ],
-    ],
-
     'shipping_settings' => [
         'enabled' => true,
         'method_name' => 'Envío estándar',

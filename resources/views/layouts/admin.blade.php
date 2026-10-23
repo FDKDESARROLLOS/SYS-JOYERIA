@@ -115,12 +115,6 @@
                         'active' => 'settings.store',
                     ],
                     [
-                        'label' => 'Pagos',
-                        'icon' => 'payments',
-                        'route' => 'settings.payments',
-                        'active' => 'settings.payments',
-                    ],
-                    [
                         'label' => 'Envíos',
                         'icon' => 'shipping',
                         'route' => 'settings.shipping',

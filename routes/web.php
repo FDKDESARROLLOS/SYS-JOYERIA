@@ -5,13 +5,17 @@ use App\Http\Controllers\Auth\LoginController;
 use App\Http\Controllers\Auth\PasswordResetController;
 use App\Http\Controllers\CategoryController;
 use App\Http\Controllers\CollectionController;
+use App\Http\Controllers\ErrorCodeController;
+use App\Http\Controllers\ErrorLogController;
 use App\Http\Controllers\InventoryController;
 use App\Http\Controllers\MaterialController;
 use App\Http\Controllers\ProductController;
 use App\Http\Controllers\ProductVariantController;
 use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\ShippingSettingController;
 use App\Http\Controllers\SizeController;
 use App\Http\Controllers\StoneController;
+use App\Http\Controllers\StoreSettingController;
 use Illuminate\Support\Facades\Route;
 
 Route::middleware('guest')->group(function () {
@@ -155,17 +159,43 @@ Route::middleware(['auth', 'admin'])->group(function () {
 
     Route::view('/orders/{orderNumber}/dispatch', 'orders.dispatch')->name('orders.dispatch');
 
-    Route::view('/settings/store', 'settings.store')->name('settings.store');
+    Route::get('/settings/store', [StoreSettingController::class, 'edit'])
+        ->name('settings.store');
 
-    Route::view('/settings/payments', 'settings.payments')->name('settings.payments');
+    Route::patch('/settings/store', [StoreSettingController::class, 'update'])
+        ->name('settings.store.update');
 
-    Route::view('/settings/shipping', 'settings.shipping')->name('settings.shipping');
+    Route::get('/settings/shipping', [ShippingSettingController::class, 'edit'])
+        ->name('settings.shipping');
+
+    Route::patch('/settings/shipping', [ShippingSettingController::class, 'update'])
+        ->name('settings.shipping.update');
 });
 
-Route::middleware('auth')->group(function () {
-    Route::view('/settings/errors', 'settings.errors')->name('settings.errors');
+Route::middleware(['auth', 'technical.access'])->group(function () {
+    Route::get('/settings/errors', [ErrorCodeController::class, 'index'])
+        ->name('settings.errors');
 
-    Route::view('/settings/errors/logs', 'settings.error-logs')->name('settings.errors.logs');
+    Route::get('/settings/errors/create', [ErrorCodeController::class, 'create'])
+        ->name('settings.errors.create');
+
+    Route::post('/settings/errors', [ErrorCodeController::class, 'store'])
+        ->name('settings.errors.store');
+
+    Route::get('/settings/errors/{errorCode}/edit', [ErrorCodeController::class, 'edit'])
+        ->name('settings.errors.edit');
+
+    Route::patch('/settings/errors/{errorCode}', [ErrorCodeController::class, 'update'])
+        ->name('settings.errors.update');
+
+    Route::patch('/settings/errors/{errorCode}/status', [ErrorCodeController::class, 'toggleStatus'])
+        ->name('settings.errors.status');
+
+    Route::get('/settings/errors/logs', [ErrorLogController::class, 'index'])
+        ->name('settings.errors.logs');
+
+    Route::patch('/settings/errors/logs/{errorLog}/status', [ErrorLogController::class, 'updateStatus'])
+        ->name('settings.errors.logs.status');
 });
 
 if (app()->environment('local')) {

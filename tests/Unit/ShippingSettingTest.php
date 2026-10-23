@@ -37,4 +37,53 @@ class ShippingSettingTest extends TestCase
         $this->assertFalse(method_exists(ShippingSetting::class, 'orders'));
         $this->assertFalse(method_exists(ShippingSetting::class, 'payments'));
     }
+
+    public function test_calculate_shipping_cost_returns_the_fixed_cost_when_free_shipping_is_disabled(): void
+    {
+        $shippingSetting = new ShippingSetting([
+            'enabled' => true,
+            'shipping_cost' => '150.00',
+            'free_shipping_enabled' => false,
+        ]);
+
+        $this->assertSame('150.00', $shippingSetting->calculateShippingCost('999.99'));
+    }
+
+    public function test_calculate_shipping_cost_returns_zero_for_all_orders(): void
+    {
+        $shippingSetting = new ShippingSetting([
+            'enabled' => true,
+            'shipping_cost' => '150.00',
+            'free_shipping_enabled' => true,
+            'free_shipping_type' => 'all',
+        ]);
+
+        $this->assertSame('0.00', $shippingSetting->calculateShippingCost('1.00'));
+    }
+
+    public function test_calculate_shipping_cost_applies_the_free_shipping_minimum(): void
+    {
+        $shippingSetting = new ShippingSetting([
+            'enabled' => true,
+            'shipping_cost' => '150.00',
+            'free_shipping_enabled' => true,
+            'free_shipping_type' => 'minimum',
+            'free_shipping_minimum' => '1000.00',
+        ]);
+
+        $this->assertSame('0.00', $shippingSetting->calculateShippingCost('1000.00'));
+        $this->assertSame('150.00', $shippingSetting->calculateShippingCost('999.99'));
+    }
+
+    public function test_calculate_shipping_cost_returns_null_when_shipping_is_disabled(): void
+    {
+        $shippingSetting = new ShippingSetting([
+            'enabled' => false,
+            'shipping_cost' => '150.00',
+            'free_shipping_enabled' => true,
+            'free_shipping_type' => 'all',
+        ]);
+
+        $this->assertNull($shippingSetting->calculateShippingCost('1000.00'));
+    }
 }
