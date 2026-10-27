@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Category;
 use App\Models\Collection;
+use App\Models\InventoryReservation;
 use App\Models\InventoryStock;
 use App\Models\Material;
 use App\Models\Product;
@@ -11,6 +12,7 @@ use App\Models\ProductImage;
 use App\Models\ProductVariant;
 use App\Models\Size;
 use App\Models\Stone;
+use App\Support\InventoryReservationStatus;
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -211,6 +213,17 @@ class ProductController extends Controller
                 ->findOrFail($product->id);
 
             abort_unless(! $lockedProduct->trashed(), 404);
+
+            $hasActiveReservations = InventoryReservation::query()
+                ->whereIn('inventory_stock_id', $stocks->pluck('id'))
+                ->where('status', InventoryReservationStatus::ACTIVE)
+                ->exists();
+
+            if ($hasActiveReservations) {
+                throw ValidationException::withMessages([
+                    'product' => 'No puedes retirar este producto mientras tenga reservas activas.',
+                ]);
+            }
 
             $physicalStock = (int) $stocks->sum('current_stock');
             $lockedProduct->delete();

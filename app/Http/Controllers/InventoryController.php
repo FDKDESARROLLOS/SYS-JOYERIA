@@ -37,8 +37,8 @@ class InventoryController extends Controller
                         ->orWhereHas('productVariant.product', fn ($query) => $query->where('status', $catalogStatus));
                 });
             })
-            ->when($stockStatus === 'available', fn ($query) => $query->where('current_stock', '>', 0))
-            ->when($stockStatus === 'out', fn ($query) => $query->where('current_stock', '<=', 0))
+            ->when($stockStatus === 'available', fn ($query) => $query->whereColumn('current_stock', '>', 'reserved_stock'))
+            ->when($stockStatus === 'out', fn ($query) => $query->whereColumn('current_stock', '<=', 'reserved_stock'))
             ->orderBy('id')
             ->paginate(10)
             ->withQueryString();
@@ -270,6 +270,12 @@ class InventoryController extends Controller
                     : $previousStock - $quantity;
             }
 
+            if ($resultingStock < (int) $stock->reserved_stock) {
+                throw ValidationException::withMessages([
+                    'quantity' => 'La operación no puede reducir el stock físico por debajo del stock reservado.',
+                ]);
+            }
+
             if ($resultingStock < 0) {
                 throw ValidationException::withMessages([
                     'quantity' => 'La salida no puede dejar el stock por debajo de cero.',
@@ -440,10 +446,12 @@ class InventoryController extends Controller
         $variant = $inventoryStock->productVariant;
         $product = $variant?->product;
         $currentStock = (int) $inventoryStock->current_stock;
+        $reservedStock = (int) $inventoryStock->reserved_stock;
+        $availableStock = $inventoryStock->available_stock;
         $isOutOfCatalog = (bool) ($variant?->trashed() || $product?->trashed());
         [$catalogStatus, $catalogStatusClass] = $this->effectiveCatalogStatus($product, $variant);
         [$stockStatus, $stockStatusClass] = match (true) {
-            $currentStock <= 0 => ['Sin stock', 'text-aurea-danger'],
+            $availableStock <= 0 => ['Sin stock', 'text-aurea-danger'],
             $isOutOfCatalog => ['Con existencias', 'text-[#5b8668]'],
             default => ['Disponible', 'text-[#5b8668]'],
         };
@@ -456,6 +464,8 @@ class InventoryController extends Controller
                 ?? $product?->category?->name
                 ?? '—',
             'current_stock' => $currentStock,
+            'reserved_stock' => $reservedStock,
+            'available_stock' => $availableStock,
             'stock_status' => $stockStatus,
             'stock_status_class' => $stockStatusClass,
             'catalog_status' => $catalogStatus,

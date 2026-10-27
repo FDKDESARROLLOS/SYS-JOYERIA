@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\InventoryReservation;
 use App\Models\InventoryStock;
 use App\Models\Material;
 use App\Models\Product;
@@ -9,12 +10,14 @@ use App\Models\ProductImage;
 use App\Models\ProductVariant;
 use App\Models\Size;
 use App\Models\Stone;
+use App\Support\InventoryReservationStatus;
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use Illuminate\Validation\Validator;
 use Illuminate\View\View;
 
@@ -162,6 +165,17 @@ class ProductVariantController extends Controller
                 ->where('product_variant_id', $variant->id)
                 ->lockForUpdate()
                 ->value('current_stock') ?? 0);
+
+            $hasActiveReservation = InventoryReservation::query()
+                ->where('product_variant_id', $variant->id)
+                ->where('status', InventoryReservationStatus::ACTIVE)
+                ->exists();
+
+            if ($hasActiveReservation) {
+                throw ValidationException::withMessages([
+                    'variant' => 'No puedes retirar esta variante mientras tenga una reserva activa.',
+                ]);
+            }
 
             $variant->delete();
         });

@@ -53,7 +53,9 @@
                             <option value="">Seleccionar producto o variante</option>
                             @foreach ($inventoryItems as $inventoryItem)
                                 <option value="{{ $inventoryItem['id'] }}" @selected((string) $selectedInventoryStockId === (string) $inventoryItem['id'])
-                                    data-stock="{{ $inventoryItem['current_stock'] }}">
+                                    data-stock="{{ $inventoryItem['current_stock'] }}"
+                                    data-reserved="{{ $inventoryItem['reserved_stock'] }}"
+                                    data-available="{{ $inventoryItem['available_stock'] }}">
                                     {{ $inventoryItem['product'] }} — {{ $inventoryItem['variant'] }} —
                                     {{ $inventoryItem['sku'] }}
                                 </option>
@@ -61,7 +63,7 @@
                         </select>
                     </label>
                     <div class="sm:col-span-2 rounded-xl border border-[#eef0ec] bg-[#fbfbf9] px-4 py-3">
-                        <p class="text-xs text-[#929b94]">Stock actual</p>
+                        <p class="text-xs text-[#929b94]">Stock físico · reservado · disponible</p>
                         <p id="current-stock" class="mt-1 text-sm font-medium text-[#343d37]">Selecciona un producto o
                             variante</p>
                     </div>
@@ -160,7 +162,15 @@
         const getSelectedStock = () => {
             const selectedOption = inventoryItem.options[inventoryItem.selectedIndex];
 
-            return selectedOption?.dataset.stock === undefined ? null : Number(selectedOption.dataset.stock);
+            if (selectedOption?.dataset.stock === undefined) {
+                return null;
+            }
+
+            return {
+                current: Number(selectedOption.dataset.stock),
+                reserved: Number(selectedOption.dataset.reserved),
+                available: Number(selectedOption.dataset.available),
+            };
         };
 
         const updateMovementPreview = () => {
@@ -183,8 +193,12 @@
                 direction = -1;
             }
 
-            currentStock.textContent = stock === null ? 'Selecciona un producto o variante' : `${stock} unidades`;
-            previewCurrentStock.textContent = stock === null ? '—' : stock;
+            currentStock.textContent = stock === null
+                ? 'Selecciona un producto o variante'
+                : `${stock.current} · ${stock.reserved} · ${stock.available} unidades`;
+            previewCurrentStock.textContent = stock === null
+                ? '—'
+                : `${stock.current} · ${stock.reserved} · ${stock.available}`;
 
             const hasValidQuantity = Number.isInteger(quantity) && quantity > 0;
             const missingRequiredField = stock === null ||
@@ -206,16 +220,16 @@
             }
 
             const signedQuantity = quantity * direction;
-            const resultingStock = stock + signedQuantity;
-            const exceedsAvailableStock = resultingStock < 0;
-            const adjustmentHasNoChange = isAdjustment && resultingStock === stock;
+            const resultingStock = stock.current + signedQuantity;
+            const exceedsAvailableStock = resultingStock < stock.reserved;
+            const adjustmentHasNoChange = isAdjustment && resultingStock === stock.current;
 
             adjustmentStock.value = isAdjustment ? resultingStock : '';
 
             previewMovement.textContent = `${signedQuantity > 0 ? '+' : ''}${signedQuantity}`;
             previewResultingStock.textContent = exceedsAvailableStock ? '—' : resultingStock;
             stockValidation.textContent = exceedsAvailableStock
-                ? 'La cantidad no puede superar el stock disponible.'
+                ? 'La operación no puede reducir el stock físico por debajo del stock reservado.'
                 : adjustmentHasNoChange
                     ? 'La existencia indicada es igual al stock actual.'
                     : '';

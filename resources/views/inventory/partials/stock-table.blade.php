@@ -10,18 +10,20 @@
         <caption class="sr-only">Existencias actuales de productos y variantes</caption>
         <thead class="bg-[#fbfbf9] text-[10px] uppercase tracking-wider text-[#9ca49e]">
             <tr>
-                <th scope="col" class="w-[18%] px-5 py-3 font-medium sm:px-6">Producto</th>
-                <th scope="col" class="w-[24%] px-3 py-3 font-medium">Características</th>
-                <th scope="col" class="w-[14%] px-3 py-3 font-medium">SKU</th>
-                <th scope="col" class="w-[11%] px-3 py-3 font-medium">Categoría</th>
-                <th scope="col" class="w-[8%] whitespace-nowrap px-3 py-3 font-medium">Stock actual</th>
+                <th scope="col" class="w-[15%] px-5 py-3 font-medium sm:px-6">Producto</th>
+                <th scope="col" class="w-[20%] px-3 py-3 font-medium">Características</th>
+                <th scope="col" class="w-[10%] px-3 py-3 font-medium">SKU</th>
+                <th scope="col" class="w-[8%] px-3 py-3 font-medium">Categoría</th>
+                <th scope="col" class="w-[7%] whitespace-nowrap px-3 py-3 font-medium">Físico</th>
+                <th scope="col" class="w-[7%] whitespace-nowrap px-3 py-3 font-medium">Reservado</th>
+                <th scope="col" class="w-[7%] whitespace-nowrap px-3 py-3 font-medium">Disponible</th>
                 @if ($showCatalogStatus)
-                    <th scope="col" class="w-[11%] whitespace-nowrap px-3 py-3 font-medium">Estado catálogo</th>
+                        <th scope="col" class="w-[9%] whitespace-nowrap px-3 py-3 font-medium">Estado catálogo</th>
                 @endif
                 @if ($showStatus)
-                    <th scope="col" class="w-[11%] whitespace-nowrap px-3 py-3 font-medium">Estado inventario</th>
+                        <th scope="col" class="w-[9%] whitespace-nowrap px-3 py-3 font-medium">Estado inventario</th>
                 @endif
-                <th scope="col" class="w-[13%] whitespace-nowrap px-5 py-3 text-right font-medium sm:px-6">Acciones</th>
+                <th scope="col" class="w-[8%] whitespace-nowrap px-5 py-3 text-right font-medium sm:px-6">Acciones</th>
             </tr>
         </thead>
         <tbody class="divide-y divide-[#f0f1ed]">
@@ -42,8 +44,12 @@
                     <td class="px-3 py-4 text-xs text-[#929b94]">{{ $inventoryRow['sku'] }}</td>
                     <td class="px-3 py-4">{{ $inventoryRow['category'] }}</td>
                     <td
-                        class="px-3 py-4 font-medium {{ $inventoryRow['current_stock'] === 0 ? 'text-aurea-danger' : 'text-[#343d37]' }}">
+                        class="px-3 py-4 font-medium text-[#343d37]">
                         {{ $inventoryRow['current_stock'] }}
+                    </td>
+                    <td class="px-3 py-4 font-medium text-[#947142]">{{ $inventoryRow['reserved_stock'] }}</td>
+                    <td class="px-3 py-4 font-medium {{ $inventoryRow['available_stock'] === 0 ? 'text-aurea-danger' : 'text-[#343d37]' }}">
+                        {{ $inventoryRow['available_stock'] }}
                     </td>
                     @if ($showCatalogStatus)
                         <td class="whitespace-nowrap px-3 py-4 text-xs">
@@ -96,9 +102,17 @@
                     <dd class="mt-0.5 text-[#5b655e]">{{ $inventoryRow['category'] }}</dd>
                 </div>
                 <div>
-                    <dt class="text-[#929b94]">Stock</dt>
-                    <dd class="mt-0.5 font-medium text-[#343d37]">{{ $inventoryRow['current_stock'] }}</dd>
-                </div>
+                        <dt class="text-[#929b94]">Físico</dt>
+                        <dd class="mt-0.5 font-medium text-[#343d37]">{{ $inventoryRow['current_stock'] }}</dd>
+                    </div>
+                    <div>
+                        <dt class="text-[#929b94]">Reservado</dt>
+                        <dd class="mt-0.5 font-medium text-[#947142]">{{ $inventoryRow['reserved_stock'] }}</dd>
+                    </div>
+                    <div>
+                        <dt class="text-[#929b94]">Disponible</dt>
+                        <dd class="mt-0.5 font-medium {{ $inventoryRow['available_stock'] === 0 ? 'text-aurea-danger' : 'text-[#343d37]' }}">{{ $inventoryRow['available_stock'] }}</dd>
+                    </div>
                 @if ($showCatalogStatus)
                     <div>
                         <dt class="text-[#929b94]">Catálogo</dt>

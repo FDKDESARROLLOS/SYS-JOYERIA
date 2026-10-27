@@ -5,6 +5,7 @@ namespace Tests\Unit;
 use App\Models\OrderItem;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Schema;
@@ -55,6 +56,14 @@ class OrderItemTest extends TestCase
 
         $this->assertInstanceOf(BelongsTo::class, $productVariant);
         $this->assertSame('product_variant_id', $productVariant->getForeignKeyName());
+    }
+
+    public function test_order_item_defines_its_inventory_reservation_relationship(): void
+    {
+        $reservation = (new OrderItem)->inventoryReservation();
+
+        $this->assertInstanceOf(HasOne::class, $reservation);
+        $this->assertSame('order_item_id', $reservation->getForeignKeyName());
     }
 
     public function test_order_item_has_no_product_id_in_the_model_or_database(): void

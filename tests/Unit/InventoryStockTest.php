@@ -20,10 +20,26 @@ class InventoryStockTest extends TestCase
         $this->assertSame([
             'product_variant_id',
             'current_stock',
+            'reserved_stock',
             'minimum_stock',
         ], $inventoryStock->getFillable());
         $this->assertSame('integer', $inventoryStock->getCasts()['current_stock']);
+        $this->assertSame('integer', $inventoryStock->getCasts()['reserved_stock']);
         $this->assertSame('integer', $inventoryStock->getCasts()['minimum_stock']);
+    }
+
+    public function test_available_stock_never_goes_below_zero(): void
+    {
+        $inventoryStock = new InventoryStock([
+            'current_stock' => 5,
+            'reserved_stock' => 4,
+        ]);
+
+        $this->assertSame(1, $inventoryStock->available_stock);
+
+        $inventoryStock->reserved_stock = 6;
+
+        $this->assertSame(0, $inventoryStock->available_stock);
     }
 
     public function test_inventory_stock_defines_its_product_variant_relationship(): void
@@ -40,5 +56,13 @@ class InventoryStockTest extends TestCase
 
         $this->assertInstanceOf(HasMany::class, $movements);
         $this->assertSame('inventory_stock_id', $movements->getForeignKeyName());
+    }
+
+    public function test_inventory_stock_defines_its_reservations_relationship(): void
+    {
+        $reservations = (new InventoryStock)->reservations();
+
+        $this->assertInstanceOf(HasMany::class, $reservations);
+        $this->assertSame('inventory_stock_id', $reservations->getForeignKeyName());
     }
 }
