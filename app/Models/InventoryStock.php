@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use InvalidArgumentException;
 
 #[Fillable([
     'product_variant_id',
@@ -17,6 +18,20 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class InventoryStock extends Model
 {
     use HasFactory;
+
+    protected static function booted(): void
+    {
+        static::saving(function (self $inventoryStock): void {
+            $currentStock = (int) $inventoryStock->current_stock;
+            $reservedStock = (int) $inventoryStock->reserved_stock;
+
+            if ($currentStock < 0 || $reservedStock < 0 || $reservedStock > $currentStock) {
+                throw new InvalidArgumentException(
+                    'El stock reservado debe estar entre cero y el stock físico actual.',
+                );
+            }
+        });
+    }
 
     protected function casts(): array
     {

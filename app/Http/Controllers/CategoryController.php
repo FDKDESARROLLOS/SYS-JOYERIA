@@ -135,7 +135,9 @@ class CategoryController extends Controller
             'parent_id' => [
                 'nullable',
                 'integer',
-                Rule::exists('categories', 'id')->whereNull('deleted_at'),
+                Rule::exists('categories', 'id')
+                    ->whereNull('parent_id')
+                    ->whereNull('deleted_at'),
                 Rule::notIn([$category?->id]),
             ],
         ];

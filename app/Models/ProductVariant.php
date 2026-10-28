@@ -2,7 +2,9 @@
 
 namespace App\Models;
 
+use App\Support\CatalogPrice;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -34,6 +36,55 @@ class ProductVariant extends Model
             'cost' => 'decimal:2',
             'price' => 'decimal:2',
             'sale_price' => 'decimal:2',
+        ];
+    }
+
+    public function setSalePriceAttribute(mixed $value): void
+    {
+        $this->attributes['sale_price'] = CatalogPrice::normalizeOptional(
+            is_scalar($value) ? (string) $value : null,
+        );
+    }
+
+    public function scopePubliclyVisible(Builder $query): Builder
+    {
+        return $query
+            ->where('status', 'active')
+            ->whereHas('inventoryStock');
+    }
+
+    public function effectivePrice(?Product $product = null): ?string
+    {
+        $product ??= $this->product;
+
+        return $this->price ?? $product?->price;
+    }
+
+    public function effectiveSalePrice(?Product $product = null): ?string
+    {
+        $product ??= $this->product;
+
+        $salePrice = CatalogPrice::normalizeOptional($this->sale_price);
+        $salePrice ??= CatalogPrice::normalizeOptional($product?->sale_price);
+
+        return CatalogPrice::isValidSalePrice($salePrice, $this->effectivePrice($product))
+            ? $salePrice
+            : null;
+    }
+
+    /**
+     * @return array{size: ?string, material: ?string, karat: ?int, metal_color: ?string, stone: ?string}
+     */
+    public function effectiveAttributes(?Product $product = null): array
+    {
+        $product ??= $this->product;
+
+        return [
+            'size' => $this->size?->name ?? $product?->baseSize?->name,
+            'material' => $this->material?->name ?? $product?->material?->name,
+            'karat' => $this->karat ?? $product?->karat,
+            'metal_color' => $this->metal_color ?? $product?->metal_color,
+            'stone' => $this->stone?->name ?? $product?->productStones?->first()?->stone?->name,
         ];
     }
 

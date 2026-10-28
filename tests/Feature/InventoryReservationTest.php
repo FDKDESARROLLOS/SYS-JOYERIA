@@ -13,6 +13,8 @@ use App\Models\User;
 use App\Services\InventoryReservationService;
 use App\Support\InventoryReservationStatus;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Tests\TestCase;
 
@@ -73,6 +75,42 @@ class InventoryReservationTest extends TestCase
         $this->assertSame(0, $stock->refresh()->reserved_stock);
     }
 
+    public function test_inventory_stock_rejects_reserved_stock_above_physical_stock(): void
+    {
+        [$stock] = $this->createOrderItem(3, 1);
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('El stock reservado debe estar entre cero y el stock físico actual.');
+
+        $stock->update(['reserved_stock' => 4]);
+    }
+
+    public function test_reservation_rejects_an_inactive_variant(): void
+    {
+        [$stock, $orderItem] = $this->createOrderItem(3, 1);
+        $orderItem->productVariant->update(['status' => 'inactive']);
+
+        $this->expectException(InventoryReservationException::class);
+        $this->expectExceptionMessage('La variante no está disponible para reservarse.');
+
+        app(InventoryReservationService::class)->reserve($orderItem);
+
+        $this->assertSame(0, $stock->refresh()->reserved_stock);
+    }
+
+    public function test_reservation_rejects_a_soft_deleted_variant(): void
+    {
+        [$stock, $orderItem] = $this->createOrderItem(3, 1);
+        $orderItem->productVariant->delete();
+
+        $this->expectException(InventoryReservationException::class);
+        $this->expectExceptionMessage('La variante no está disponible para reservarse.');
+
+        app(InventoryReservationService::class)->reserve($orderItem);
+
+        $this->assertSame(0, $stock->refresh()->reserved_stock);
+    }
+
     public function test_release_is_idempotent_and_does_not_change_physical_stock(): void
     {
         [$stock, $orderItem] = $this->createOrderItem(5, 2);
@@ -85,6 +123,81 @@ class InventoryReservationTest extends TestCase
         $this->assertSame(5, $stock->refresh()->current_stock);
         $this->assertSame(0, $stock->reserved_stock);
         $this->assertSame(InventoryReservationStatus::RELEASED, $released->status);
+    }
+
+    public function test_expired_reservation_releases_reserved_stock_without_changing_physical_stock(): void
+    {
+        [$stock, $orderItem] = $this->createOrderItem(5, 2);
+        $service = app(InventoryReservationService::class);
+        $reservation = $service->reserve($orderItem);
+        $reservation->update(['expires_at' => now()->subMinute()]);
+
+        $expired = $service->expire($reservation);
+        $service->expire($expired);
+
+        $this->assertSame(5, $stock->refresh()->current_stock);
+        $this->assertSame(0, $stock->reserved_stock);
+        $this->assertSame(InventoryReservationStatus::EXPIRED, $expired->status);
+        $this->assertNotNull($expired->released_at);
+    }
+
+    public function test_expired_reservations_can_be_processed_by_the_artisan_command(): void
+    {
+        [$stock, $orderItem] = $this->createOrderItem(5, 2);
+        $reservation = app(InventoryReservationService::class)->reserve($orderItem);
+        $reservation->update(['expires_at' => now()->subMinute()]);
+
+        $this->artisan('inventory:release-expired-reservations')
+            ->expectsOutput('Reservas expiradas liberadas: 1')
+            ->assertSuccessful();
+
+        $this->assertSame(5, $stock->refresh()->current_stock);
+        $this->assertSame(0, $stock->reserved_stock);
+        $this->assertSame(InventoryReservationStatus::EXPIRED, $reservation->refresh()->status);
+
+        Artisan::call('inventory:release-expired-reservations');
+        $this->assertSame(0, $stock->refresh()->reserved_stock);
+    }
+
+    public function test_expiration_does_not_change_a_consumed_reservation(): void
+    {
+        [$stock, $orderItem] = $this->createOrderItem(5, 2);
+        $service = app(InventoryReservationService::class);
+        $reservation = $service->reserve($orderItem);
+        $consumed = $service->consume($reservation);
+        $consumed->update(['expires_at' => now()->subMinute()]);
+
+        $result = $service->expire($consumed);
+
+        $this->assertSame(3, $stock->refresh()->current_stock);
+        $this->assertSame(0, $stock->reserved_stock);
+        $this->assertSame(InventoryReservationStatus::CONSUMED, $result->status);
+    }
+
+    public function test_release_rejects_a_reservation_with_stock_from_another_variant(): void
+    {
+        [$stock, $orderItem] = $this->createOrderItem(5, 2);
+        $reservation = app(InventoryReservationService::class)->reserve($orderItem);
+        $otherVariant = ProductVariant::create([
+            'product_id' => $orderItem->productVariant->product_id,
+            'sku' => 'OTHER-'.Str::random(8),
+            'status' => 'active',
+        ]);
+        $otherStock = InventoryStock::create([
+            'product_variant_id' => $otherVariant->id,
+            'current_stock' => 4,
+        ]);
+        DB::table('inventory_reservations')
+            ->where('id', $reservation->id)
+            ->update(['inventory_stock_id' => $otherStock->id]);
+
+        $this->expectException(InventoryReservationException::class);
+        $this->expectExceptionMessage('La reserva no coincide con el inventario relacionado.');
+
+        app(InventoryReservationService::class)->release($reservation);
+
+        $this->assertSame(2, $stock->refresh()->reserved_stock);
+        $this->assertSame(4, $otherStock->refresh()->reserved_stock);
     }
 
     public function test_consume_reduces_physical_and_reserved_stock_and_records_exit(): void

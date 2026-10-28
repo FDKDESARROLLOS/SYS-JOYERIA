@@ -2,7 +2,9 @@
 
 namespace App\Models;
 
+use App\Support\CatalogPrice;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -46,6 +48,31 @@ class Product extends Model
             'is_new' => 'boolean',
             'bestseller' => 'boolean',
         ];
+    }
+
+    public function setSalePriceAttribute(mixed $value): void
+    {
+        $this->attributes['sale_price'] = CatalogPrice::normalizeOptional(
+            is_scalar($value) ? (string) $value : null,
+        );
+    }
+
+    public function scopePubliclyVisible(Builder $query): Builder
+    {
+        return $query
+            ->where('status', 'active')
+            ->whereHas('category', function (Builder $query): void {
+                $query
+                    ->where('status', true)
+                    ->where(function (Builder $query): void {
+                        $query
+                            ->whereNull('parent_id')
+                            ->orWhereHas('parent', fn (Builder $parent): Builder => $parent->where('status', true));
+                    });
+            })
+            ->whereHas('variants', fn (Builder $query): Builder => $query
+                ->publiclyVisible()
+                ->whereHas('inventoryStock'));
     }
 
     public function category(): BelongsTo

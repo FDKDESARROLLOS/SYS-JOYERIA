@@ -35,6 +35,40 @@ class AuthenticationTest extends TestCase
         $response->assertRedirect(route('dashboard'));
     }
 
+    public function test_technical_user_is_redirected_to_the_logs_screen(): void
+    {
+        $user = User::factory()->create([
+            'role' => 'technical',
+            'status' => true,
+            'password' => 'password123',
+        ]);
+
+        $response = $this->post('/login', [
+            'email' => $user->email,
+            'password' => 'password123',
+        ]);
+
+        $this->assertAuthenticatedAs($user);
+        $response->assertRedirect(route('settings.errors.logs'));
+        $this->get(route('settings.errors.logs'))->assertOk();
+    }
+
+    public function test_unknown_role_is_not_given_technical_navigation(): void
+    {
+        $user = User::factory()->create([
+            'role' => 'unknown',
+            'status' => true,
+        ]);
+
+        $response = $this->actingAs($user)->get(route('profile'));
+
+        $response
+            ->assertOk()
+            ->assertSee('Mi perfil')
+            ->assertDontSee('Catálogo de errores')
+            ->assertDontSee('Registro de errores');
+    }
+
     public function test_inactive_user_cannot_login(): void
     {
         $user = User::factory()->create([

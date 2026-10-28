@@ -280,6 +280,21 @@ class ProductTest extends TestCase
         $this->assertNotSame($inactiveSize->id, $size->id);
     }
 
+    public function test_product_edit_form_handles_a_soft_deleted_category_without_crashing(): void
+    {
+        $admin = User::factory()->create();
+        $category = $this->createCategory();
+        $product = Product::create($this->productPayload($category));
+
+        $category->delete();
+
+        $response = $this->actingAs($admin)->get(route('products.edit', $product));
+
+        $response
+            ->assertOk()
+            ->assertSee('La categoría histórica de este producto ya no está activa.');
+    }
+
     public function test_product_form_only_shows_active_non_deleted_stones(): void
     {
         $admin = User::factory()->create();
@@ -353,6 +368,40 @@ class ProductTest extends TestCase
             'current_stock' => 0,
             'minimum_stock' => 0,
         ]);
+    }
+
+    public function test_product_zero_sale_price_is_normalized_to_null(): void
+    {
+        $admin = User::factory()->create();
+        $category = $this->createCategory();
+
+        $this->actingAs($admin)
+            ->post(route('products.store'), $this->productPayload($category, null, null, null, [
+                'price' => '5000.00',
+                'sale_price' => '0.00',
+            ]))
+            ->assertRedirect(route('products.index'));
+
+        $product = Product::query()->where('name', 'Producto base')->firstOrFail();
+
+        $this->assertNull($product->sale_price);
+    }
+
+    public function test_product_sale_price_must_be_lower_than_normal_price(): void
+    {
+        $admin = User::factory()->create();
+        $category = $this->createCategory();
+
+        $response = $this->actingAs($admin)->post(
+            route('products.store'),
+            $this->productPayload($category, null, null, null, [
+                'price' => '5000.00',
+                'sale_price' => '5000.00',
+            ]),
+        );
+
+        $response->assertSessionHasErrors('sale_price');
+        $this->assertDatabaseMissing('products', ['name' => 'Producto base']);
     }
 
     public function test_base_variant_status_matches_the_product_status(): void

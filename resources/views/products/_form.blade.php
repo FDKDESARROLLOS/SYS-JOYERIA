@@ -64,6 +64,12 @@
             </div>
         @endif
 
+        @if ($categoryRelationInactive ?? false)
+            <div class="rounded-xl border border-[#eadfcf] bg-[#fffaf2] px-4 py-3 text-sm text-[#80602f] dark:border-[#66543c] dark:bg-[#3b352c] dark:text-[#ead7b7]" role="status">
+                La categoría histórica de este producto ya no está activa. Puedes conservar la relación actual o seleccionar una categoría vigente antes de guardar.
+            </div>
+        @endif
+
         <x-admin.form-section
             number="01"
             title="Información general"

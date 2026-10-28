@@ -159,13 +159,13 @@
             <h2 class="font-serif text-3xl text-aurea-ink">Buenos días, Admin Prueba</h2>
             <p class="mt-2 text-sm text-aurea-muted">Aquí tienes lo más importante de tu tienda hoy.</p>
         </div>
-        <button type="button"
+        <a href="{{ route('products.create') }}"
             class="aurea-focus inline-flex w-fit items-center gap-2 rounded-lg bg-aurea-gold px-4 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-[#9f793f]">
             <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7">
                 <path d="M12 5v14M5 12h14" />
             </svg>
             Añadir producto
-        </button>
+        </a>
     </div>
 
     <section class="mb-7 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -327,9 +327,9 @@
                 <div>
                     <h3 class="font-serif text-xl text-[#28302b]">Pedidos recientes</h3>
                     <p class="mt-1 text-xs text-[#8a938d]">Últimas transacciones de tu tienda</p>
-                </div><button type="button"
+                </div><a href="{{ route('orders.index') }}"
                     class="aurea-focus rounded-md px-1 text-xs font-medium text-[#aa8046] hover:text-[#80602f]">Ver
-                    todos</button>
+                    todos</a>
             </div>
 
             <div class="hidden overflow-x-auto sm:block">
@@ -399,9 +399,9 @@
                     <div>
                         <h3 class="font-serif text-xl text-[#28302b]">Stock bajo</h3>
                         <p class="mt-1 text-xs text-[#8a938d]">Productos que necesitan atención</p>
-                    </div><button type="button"
+                    </div><a href="{{ route('inventory.stock') }}"
                         class="aurea-focus rounded-md px-1 text-xs font-medium text-[#aa8046] hover:text-[#80602f]">Ver
-                        inventario</button>
+                        inventario</a>
                 </div>
                 @foreach ($lowStockProducts as $lowStockProduct)
                     <div class="flex items-center gap-3 border-t border-[#f0f1ed] py-3">
@@ -425,9 +425,9 @@
                     <div>
                         <h3 class="font-serif text-xl text-[#28302b]">Más vendidos</h3>
                         <p class="mt-1 text-xs text-[#8a938d]">Esta semana</p>
-                    </div><button type="button"
+                    </div><a href="{{ route('products.index') }}"
                         class="aurea-focus rounded-md px-1 text-xs font-medium text-[#aa8046] hover:text-[#80602f]">Ver
-                        catálogo</button>
+                        catálogo</a>
                 </div>
                 @foreach ($bestSellingProducts as $bestSellingProduct)
                     <div class="flex items-center gap-3 border-t border-[#f0f1ed] py-3"><span

@@ -10,6 +10,7 @@ use App\Models\ProductImage;
 use App\Models\ProductVariant;
 use App\Models\Size;
 use App\Models\Stone;
+use App\Support\CatalogPrice;
 use App\Support\InventoryReservationStatus;
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Http\RedirectResponse;
@@ -258,6 +259,14 @@ class ProductVariantController extends Controller
         ?ProductVariant $variant = null,
     ): array {
         $input = $this->normalizeInheritedAttributes($request->all(), $product);
+        $salePrice = $input['sale_price'] ?? null;
+
+        if ($salePrice === null
+            || $salePrice === ''
+            || (is_numeric($salePrice) && CatalogPrice::normalizeOptional((string) $salePrice) === null)) {
+            $input['sale_price'] = null;
+        }
+
         $validator = validator($input, $this->rules(), $this->validationMessages());
         $validator->after(function (Validator $validator) use ($input, $product, $variant): void {
             if ($validator->errors()->hasAny(['size_id', 'material_id', 'stone_id', 'karat', 'metal_color'])) {
@@ -300,6 +309,25 @@ class ProductVariantController extends Controller
                 $validator->errors()->add(
                     'size_id',
                     'Ya existe una variante con esta combinación de atributos.',
+                );
+            }
+        });
+        $validator->after(function (Validator $validator) use ($input, $product): void {
+            if ($validator->errors()->hasAny(['price', 'sale_price'])) {
+                return;
+            }
+
+            $salePrice = $input['sale_price'] ?? null;
+            $normalPrice = $input['price'] ?? $product->price;
+
+            if ($salePrice !== null
+                && ! CatalogPrice::isValidSalePrice(
+                    (string) $salePrice,
+                    $normalPrice !== null ? (string) $normalPrice : null,
+                )) {
+                $validator->errors()->add(
+                    'sale_price',
+                    'El precio de oferta debe ser mayor que cero y menor que el precio normal efectivo.',
                 );
             }
         });
@@ -357,7 +385,7 @@ class ProductVariantController extends Controller
             'metal_color' => ['nullable', 'string', 'max:255'],
             'cost' => ['nullable', 'numeric', 'min:0'],
             'price' => ['nullable', 'numeric', 'min:0'],
-            'sale_price' => ['nullable', 'numeric', 'min:0'],
+            'sale_price' => ['nullable', 'numeric', 'gt:0'],
             'status' => ['required', Rule::in(['active', 'draft', 'inactive'])],
         ];
     }

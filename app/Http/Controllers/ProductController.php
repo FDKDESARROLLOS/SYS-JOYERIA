@@ -12,6 +12,7 @@ use App\Models\ProductImage;
 use App\Models\ProductVariant;
 use App\Models\Size;
 use App\Models\Stone;
+use App\Support\CatalogPrice;
 use App\Support\InventoryReservationStatus;
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Http\JsonResponse;
@@ -154,19 +155,29 @@ class ProductController extends Controller
     public function edit(Product $product): View
     {
         $product->load([
-            'category.parent',
+            'category' => fn ($query) => $query
+                ->withTrashed()
+                ->with([
+                    'parent' => fn ($parentQuery) => $parentQuery->withTrashed(),
+                ]),
             'productStones.stone',
             'images' => fn ($query) => $query
                 ->orderBy('sort_order')
                 ->orderBy('id'),
         ]);
 
+        $category = $product->category;
+        $categoryRelationInactive = $category === null
+            || $category->trashed()
+            || $category->parent?->trashed();
+
         return view('products.edit', [
             'product' => $product,
+            'categoryRelationInactive' => $categoryRelationInactive,
             'codeWasGenerated' => $this->isLikelyGeneratedCode($product),
             ...$this->formOptions(
-                $product->category->parent_id ? $product->category->parent_id : $product->category_id,
-                $product->category->parent_id ? $product->category_id : null,
+                $category?->parent_id ?: $product->category_id,
+                $category?->parent_id ? $product->category_id : null,
             ),
         ]);
     }
@@ -293,8 +304,17 @@ class ProductController extends Controller
      */
     private function validatedProductData(Request $request, ?Product $product = null): array
     {
+        $input = $request->all();
+        $salePrice = $input['sale_price'] ?? null;
+
+        if ($salePrice === null
+            || $salePrice === ''
+            || (is_numeric($salePrice) && CatalogPrice::normalizeOptional((string) $salePrice) === null)) {
+            $input['sale_price'] = null;
+        }
+
         $validator = validator(
-            $request->all(),
+            $input,
             $this->rules($request, $product),
             $this->validationMessages(),
         );
@@ -353,6 +373,24 @@ class ProductController extends Controller
                 $validator->errors()->add(
                     'code',
                     'El código ya está en uso.',
+                );
+            }
+        });
+        $validator->after(function ($validator) use ($input): void {
+            if ($validator->errors()->hasAny(['price', 'sale_price'])) {
+                return;
+            }
+
+            $salePrice = $input['sale_price'] ?? null;
+
+            if ($salePrice !== null
+                && ! CatalogPrice::isValidSalePrice(
+                    (string) $salePrice,
+                    isset($input['price']) ? (string) $input['price'] : null,
+                )) {
+                $validator->errors()->add(
+                    'sale_price',
+                    'El precio de oferta debe ser mayor que cero y menor que el precio normal.',
                 );
             }
         });
@@ -427,7 +465,7 @@ class ProductController extends Controller
             'karat' => ['nullable', 'integer', 'min:0', 'max:65535'],
             'metal_color' => ['nullable', 'string', 'max:255'],
             'price' => ['required', 'numeric', 'min:0'],
-            'sale_price' => ['nullable', 'numeric', 'min:0'],
+            'sale_price' => ['nullable', 'numeric', 'gt:0'],
             'cost' => ['nullable', 'numeric', 'min:0'],
             'status' => ['required', Rule::in(['draft', 'active', 'inactive'])],
             'featured' => ['sometimes', 'boolean'],

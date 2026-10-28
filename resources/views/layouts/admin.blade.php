@@ -15,8 +15,6 @@
             document.documentElement.style.colorScheme = isDark ? 'dark' : 'light';
         })();
     </script>
-    <link rel="stylesheet" href="{{ asset('build/assets/app-BgnIzCXW.css') }}">
-    <script src="{{ asset('build/assets/app-Dfds1csW.js') }}"></script>
     @vite(['resources/css/app.css', 'resources/js/app.js'])
     @stack('styles')
 </head>
@@ -142,7 +140,7 @@
             ],
         ];
 
-        if (auth()->user()?->role !== 'admin') {
+        if (auth()->user()?->role === 'technical') {
             $technicalRoutes = ['settings.errors', 'settings.errors.logs'];
             $navigationGroups = array_values(array_filter(array_map(
                 function (array $group) use ($technicalRoutes): ?array {
@@ -155,6 +153,8 @@
                 },
                 $navigationGroups,
             )));
+        } elseif (auth()->user()?->role !== 'admin') {
+            $navigationGroups = [];
         }
     @endphp
     <div class="min-h-screen">

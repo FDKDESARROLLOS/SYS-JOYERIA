@@ -44,7 +44,11 @@ class LoginController extends Controller
             'last_login_at' => now(),
         ]);
 
-        return redirect()->intended(route('dashboard'));
+        return match ($request->user()->role) {
+            'admin' => redirect()->intended(route('dashboard')),
+            'technical' => redirect()->route('settings.errors.logs'),
+            default => redirect()->route('profile'),
+        };
     }
 
     public function destroy(Request $request): RedirectResponse

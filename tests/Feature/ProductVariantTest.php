@@ -407,6 +407,27 @@ class ProductVariantTest extends TestCase
         ]);
     }
 
+    public function test_variant_zero_sale_price_is_normalized_to_null(): void
+    {
+        $admin = User::factory()->create();
+        [$product, $size] = $this->createProductWithSize();
+        $material = $this->createMaterial();
+
+        $this->actingAs($admin)
+            ->post(route('products.variants.store', $product), [
+                'size_id' => $size->id,
+                'material_id' => $material->id,
+                'price' => '1000.00',
+                'sale_price' => '0.00',
+                'status' => 'active',
+            ])
+            ->assertRedirect();
+
+        $variant = ProductVariant::query()->where('product_id', $product->id)->firstOrFail();
+
+        $this->assertNull($variant->sale_price);
+    }
+
     public function test_store_resolves_a_duplicate_sku_with_an_incremental_suffix(): void
     {
         $admin = User::factory()->create();

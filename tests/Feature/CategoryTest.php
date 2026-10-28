@@ -305,6 +305,35 @@ class CategoryTest extends TestCase
         $response->assertSessionHasErrors(['parent_id']);
     }
 
+    public function test_category_cannot_use_a_subcategory_as_its_parent(): void
+    {
+        $admin = User::factory()->create();
+        $parent = Category::create([
+            'name' => 'Anillos',
+            'slug' => 'anillos',
+            'status' => true,
+            'sort_order' => 1,
+        ]);
+        $child = Category::create([
+            'parent_id' => $parent->id,
+            'name' => 'Solitarios',
+            'slug' => 'solitarios',
+            'status' => true,
+            'sort_order' => 2,
+        ]);
+
+        $response = $this
+            ->actingAs($admin)
+            ->post(route('categories.store'), [
+                'name' => 'Clásicos',
+                'status' => 1,
+                'parent_id' => $child->id,
+            ]);
+
+        $response->assertSessionHasErrors(['parent_id']);
+        $this->assertDatabaseMissing('categories', ['slug' => 'clasicos']);
+    }
+
     public function test_duplicate_generated_slugs_receive_incremental_suffixes(): void
     {
         $admin = User::factory()->create();

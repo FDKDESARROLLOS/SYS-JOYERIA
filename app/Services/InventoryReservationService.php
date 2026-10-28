@@ -6,6 +6,7 @@ use App\Exceptions\InventoryReservationException;
 use App\Models\InventoryReservation;
 use App\Models\InventoryStock;
 use App\Models\OrderItem;
+use App\Models\ProductVariant;
 use App\Support\InventoryReservationStatus;
 use Illuminate\Support\Facades\DB;
 
@@ -24,12 +25,24 @@ class InventoryReservationService
                 throw InventoryReservationException::alreadyExists();
             }
 
+            $variant = ProductVariant::query()
+                ->lockForUpdate()
+                ->find($lockedOrderItem->product_variant_id);
+
+            if ($variant === null || $variant->status !== 'active') {
+                throw InventoryReservationException::variantUnavailable();
+            }
+
             $stock = InventoryStock::query()
                 ->lockForUpdate()
-                ->where('product_variant_id', $lockedOrderItem->product_variant_id)
+                ->where('product_variant_id', $variant->getKey())
                 ->first();
 
-            if ($stock === null || $lockedOrderItem->quantity < 1) {
+            if (
+                $stock === null
+                || (int) $stock->product_variant_id !== (int) $variant->getKey()
+                || $lockedOrderItem->quantity < 1
+            ) {
                 throw InventoryReservationException::insufficientStock();
             }
 
@@ -53,7 +66,20 @@ class InventoryReservationService
 
     public function release(InventoryReservation $reservation): InventoryReservation
     {
-        return DB::transaction(function () use ($reservation): InventoryReservation {
+        return $this->releaseReservation($reservation, InventoryReservationStatus::RELEASED);
+    }
+
+    public function expire(InventoryReservation $reservation): InventoryReservation
+    {
+        return $this->releaseReservation($reservation, InventoryReservationStatus::EXPIRED, true);
+    }
+
+    private function releaseReservation(
+        InventoryReservation $reservation,
+        string $status,
+        bool $requireExpiration = false,
+    ): InventoryReservation {
+        return DB::transaction(function () use ($reservation, $status, $requireExpiration): InventoryReservation {
             $lockedReservation = InventoryReservation::query()
                 ->lockForUpdate()
                 ->findOrFail($reservation->getKey());
@@ -62,17 +88,32 @@ class InventoryReservationService
                 return $lockedReservation;
             }
 
+            if (
+                $requireExpiration
+                && ($lockedReservation->expires_at === null || $lockedReservation->expires_at->isFuture())
+            ) {
+                return $lockedReservation;
+            }
+
             $stock = InventoryStock::query()
                 ->lockForUpdate()
                 ->findOrFail($lockedReservation->inventory_stock_id);
 
-            if ($stock->reserved_stock < $lockedReservation->quantity) {
+            $orderItem = OrderItem::query()->findOrFail($lockedReservation->order_item_id);
+
+            if (
+                (int) $orderItem->order_id !== (int) $lockedReservation->order_id
+                || (int) $orderItem->product_variant_id !== (int) $lockedReservation->product_variant_id
+                || (int) $orderItem->quantity !== (int) $lockedReservation->quantity
+                || (int) $stock->product_variant_id !== (int) $lockedReservation->product_variant_id
+                || $stock->reserved_stock < $lockedReservation->quantity
+            ) {
                 throw InventoryReservationException::inconsistent();
             }
 
             $stock->decrement('reserved_stock', $lockedReservation->quantity);
             $lockedReservation->update([
-                'status' => InventoryReservationStatus::RELEASED,
+                'status' => $status,
                 'released_at' => now(),
             ]);
 

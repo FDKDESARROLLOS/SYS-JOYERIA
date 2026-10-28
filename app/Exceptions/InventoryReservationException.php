@@ -21,6 +21,11 @@ class InventoryReservationException extends RuntimeException
         return new self('La reserva no está activa y no puede consumirse.');
     }
 
+    public static function variantUnavailable(): self
+    {
+        return new self('La variante no está disponible para reservarse.');
+    }
+
     public static function inconsistent(): self
     {
         return new self('La reserva no coincide con el inventario relacionado.');
