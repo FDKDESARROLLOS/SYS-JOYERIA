@@ -19,8 +19,20 @@ class ProductResource extends JsonResource
         $product = $this->resource;
         $variants = $product->variants;
         $images = $product->images->filter(fn ($image): bool => $image->hasPublicFile())->values();
-        $centralStone = $product->productStones->firstWhere('position', 'central');
-        $lateralStone = $product->productStones->firstWhere('position', 'lateral');
+        $centralStone = $product->productStones
+            ->where('position', 'central')
+            ->sortBy([
+                ['sort_order', 'asc'],
+                ['id', 'asc'],
+            ])
+            ->first();
+        $lateralStones = $product->productStones
+            ->where('position', 'lateral')
+            ->sortBy([
+                ['sort_order', 'asc'],
+                ['id', 'asc'],
+            ])
+            ->values();
 
         $variants->each(fn (ProductVariant $variant): ProductVariant => $variant->setRelation('product', $product));
 
@@ -42,20 +54,7 @@ class ProductResource extends JsonResource
                 'center' => $centralStone !== null
                     ? new ProductStoneResource($centralStone)
                     : null,
-                'side' => $lateralStone !== null
-                    ? new ProductStoneResource($lateralStone)
-                    : [
-                        'enabled' => false,
-                        'name' => null,
-                        'shape' => null,
-                        'carats_per_stone' => null,
-                        'quantity' => null,
-                        'origin' => null,
-                        'certification' => null,
-                        'color' => null,
-                        'clarity' => null,
-                        'cut' => null,
-                    ],
+                'side' => ProductStoneResource::collection($lateralStones),
             ],
             'price' => CatalogPrice::summary($variants->map(
                 fn ($variant): ?string => $variant->effectivePrice($product),

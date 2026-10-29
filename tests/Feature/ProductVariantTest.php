@@ -226,7 +226,39 @@ class ProductVariantTest extends TestCase
             ->assertSee('$1,600.00 MXN')
             ->assertSee($baseSize->name)
             ->assertSee($material->name)
-            ->assertSee($stone->name);
+            ->assertSee('—')
+            ->assertDontSee($stone->name);
+    }
+
+    public function test_variant_index_displays_only_the_direct_commercial_stone(): void
+    {
+        $admin = User::factory()->create();
+        [$product, $size] = $this->createProductWithSize();
+        $physicalStone = $this->createStone(['name' => 'Zirconia física', 'slug' => 'zirconia-fisica']);
+        $commercialStone = $this->createStone([
+            'name' => 'Diamante comercial',
+            'slug' => 'diamante-comercial',
+        ]);
+        ProductStone::create([
+            'product_id' => $product->id,
+            'stone_id' => $physicalStone->id,
+            'position' => 'central',
+        ]);
+        ProductVariant::create($this->variantPayload($product, $size, [
+            'sku' => 'VAR-SIN-PIEDRA',
+        ]));
+        ProductVariant::create($this->variantPayload($product, $size, [
+            'sku' => 'VAR-PIEDRA-COMERCIAL',
+            'stone_id' => $commercialStone->id,
+        ]));
+
+        $response = $this->actingAs($admin)->get(route('products.variants.index', $product));
+
+        $response
+            ->assertOk()
+            ->assertSee('Diamante comercial')
+            ->assertSee('—')
+            ->assertDontSee('Zirconia física');
     }
 
     public function test_authenticated_user_can_access_create_and_edit_variant_views(): void
@@ -282,11 +314,11 @@ class ProductVariantTest extends TestCase
             ->assertSee('Usar kilataje del producto (14K)')
             ->assertSee('Usar color del producto (Amarillo)')
             ->assertSee('Usar talla de referencia (7)')
-            ->assertSee('Usar configuración de piedra del producto')
+            ->assertSee('Sin piedra comercial asignada')
             ->assertViewHas('materials', fn ($materials): bool => $materials->contains('id', $alternativeMaterial->id)
                 && ! $materials->contains('id', $baseMaterial->id))
             ->assertViewHas('stones', fn ($stones): bool => $stones->contains('id', $alternativeStone->id)
-                && ! $stones->contains('id', $baseStone->id))
+                && $stones->contains('id', $baseStone->id))
             ->assertViewHas('karatOptions', fn (array $options): bool => ! array_key_exists(14, $options)
                 && array_key_exists(10, $options)
                 && array_key_exists(18, $options))
@@ -294,7 +326,7 @@ class ProductVariantTest extends TestCase
                 && in_array('Blanco', $options, true));
     }
 
-    public function test_equal_product_attributes_are_normalized_to_inheritance_and_excluded_from_sku(): void
+    public function test_equal_inherited_attributes_are_normalized_but_commercial_stone_remains_direct(): void
     {
         $admin = User::factory()->create();
         [$product, $baseSize] = $this->createProductWithSize([
@@ -330,11 +362,11 @@ class ProductVariantTest extends TestCase
         $variant = ProductVariant::firstOrFail();
 
         $this->assertNull($variant->material_id);
-        $this->assertNull($variant->stone_id);
+        $this->assertSame($baseStone->id, $variant->stone_id);
         $this->assertNull($variant->karat);
         $this->assertNull($variant->metal_color);
         $this->assertSame($newSize->id, $variant->size_id);
-        $this->assertSame('ANI-AUR-001-T8', $variant->sku);
+        $this->assertSame('ANI-AUR-001-T8-DIA', $variant->sku);
     }
 
     public function test_edit_shows_overrides_and_inherited_values_as_null(): void

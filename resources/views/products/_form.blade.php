@@ -19,7 +19,13 @@
     $categorySizes = $categorySizes ?? [];
     $productImages = $product->relationLoaded('images') ? $product->images : collect();
     $centralProductStone = $product->productStones->firstWhere('position', 'central');
-    $lateralProductStone = $product->productStones->firstWhere('position', 'lateral');
+    $lateralProductStones = $product->productStones
+        ->where('position', 'lateral')
+        ->sortBy([
+            ['sort_order', 'asc'],
+            ['id', 'asc'],
+        ])
+        ->values();
     $centralStone = old('central_stone', $centralProductStone?->only([
         'stone_id',
         'shape',
@@ -30,18 +36,26 @@
         'clarity',
         'cut',
     ]) ?? []);
-    $sideStone = old('side_stone', $lateralProductStone?->only([
-        'stone_id',
-        'shape',
-        'carats',
-        'quantity',
-        'origin',
-        'certification',
-        'color',
-        'clarity',
-        'cut',
-    ]) ?? []);
-    $hasSideStones = (bool) old('has_side_stones', $lateralProductStone !== null);
+    $sideStones = old('side_stones');
+
+    if ($sideStones === null) {
+        $sideStones = $lateralProductStones
+            ->map(fn ($stone): array => $stone->only([
+                'id',
+                'stone_id',
+                'shape',
+                'carats',
+                'quantity',
+                'origin',
+                'certification',
+                'color',
+                'clarity',
+                'cut',
+            ]))
+            ->all();
+    }
+
+    $sideStones = is_array($sideStones) ? array_values($sideStones) : [];
 @endphp
 
 <form id="product-form" method="POST"
@@ -50,8 +64,10 @@
     class="product-form grid items-start gap-7 xl:grid-cols-[minmax(0,1fr)_19rem]">
     @csrf
 
-    <input id="product-code-generated" type="hidden" name="code_generated"
+        <input id="product-code-generated" type="hidden" name="code_generated"
         value="{{ $codeWasGenerated }}" />
+
+    <input type="hidden" name="has_side_stones" value="0" />
 
     @if ($isEditing)
         @method('PATCH')
@@ -295,7 +311,7 @@
                             @error('central_stone.shape') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                         </label>
                         <label>
-                            <span class="admin-form-label">Quilates</span>
+                            <span class="admin-form-label">Quilates por piedra</span>
                             <input type="number" name="central_stone[carats]" value="{{ $centralStone['carats'] ?? '' }}"
                                 min="0" step="0.01" inputmode="decimal" placeholder="Ej. 0.50" class="admin-form-input" />
                             @error('central_stone.carats') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
@@ -333,75 +349,133 @@
                     </div>
                 </div>
                 <div class="border-t border-[#eef0ec] pt-6">
-                    <x-admin.toggle id="product-has-side-stones" name="has_side_stones"
-                        label="Este producto tiene piedras laterales"
-                        description="Activa esta opción para registrar las piedras que acompañan a la piedra central."
-                        :checked="$hasSideStones" />
-                    <div id="side-stones-fields" class="{{ $hasSideStones ? '' : 'hidden' }} mt-5"
-                        @if (! $hasSideStones) aria-hidden="true" @endif>
-                        <div class="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-                            <label>
-                                <span class="admin-form-label">Tipo de piedra</span>
-                                <select name="side_stone[stone_id]" class="admin-form-input">
-                                    <option value="">Selecciona una piedra</option>
-                                    @foreach ($stones as $stone)
-                                        <option value="{{ $stone->id }}" @selected((string) ($sideStone['stone_id'] ?? '') === (string) $stone->id)>
-                                            {{ $stone->name }}
-                                        </option>
-                                    @endforeach
-                                </select>
-                                @error('side_stone.stone_id') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
-                            </label>
-                            <label>
-                                <span class="admin-form-label">Forma de la piedra</span>
-                                <input type="text" name="side_stone[shape]" value="{{ $sideStone['shape'] ?? '' }}"
-                                    placeholder="Ej. Redondo" class="admin-form-input" />
-                                @error('side_stone.shape') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
-                            </label>
-                            <label>
-                                <span class="admin-form-label">Quilates por piedra</span>
-                                <input type="number" name="side_stone[carats]" value="{{ $sideStone['carats'] ?? '' }}"
-                                    min="0" step="0.01" inputmode="decimal" placeholder="Ej. 0.10" class="admin-form-input" />
-                                @error('side_stone.carats') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
-                            </label>
-                            <label>
-                                <span class="admin-form-label">Cantidad</span>
-                                <input type="number" name="side_stone[quantity]" value="{{ $sideStone['quantity'] ?? '' }}"
-                                    min="1" step="1" placeholder="Ej. 2" class="admin-form-input" />
-                                @error('side_stone.quantity') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
-                            </label>
-                            <label>
-                                <span class="admin-form-label">Origen</span>
-                                <input type="text" name="side_stone[origin]" value="{{ $sideStone['origin'] ?? '' }}"
-                                    placeholder="Ej. Laboratorio" class="admin-form-input" />
-                                @error('side_stone.origin') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
-                            </label>
-                            <label>
-                                <span class="admin-form-label">Certificación</span>
-                                <input type="text" name="side_stone[certification]" value="{{ $sideStone['certification'] ?? '' }}"
-                                    placeholder="Ej. IGI" class="admin-form-input" />
-                                @error('side_stone.certification') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
-                            </label>
-                            <label>
-                                <span class="admin-form-label">Color</span>
-                                <input type="text" name="side_stone[color]" value="{{ $sideStone['color'] ?? '' }}"
-                                    placeholder="Ej. G" class="admin-form-input" />
-                                @error('side_stone.color') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
-                            </label>
-                            <label>
-                                <span class="admin-form-label">Claridad</span>
-                                <input type="text" name="side_stone[clarity]" value="{{ $sideStone['clarity'] ?? '' }}"
-                                    placeholder="Ej. VS1" class="admin-form-input" />
-                                @error('side_stone.clarity') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
-                            </label>
-                            <label>
-                                <span class="admin-form-label">Corte</span>
-                                <input type="text" name="side_stone[cut]" value="{{ $sideStone['cut'] ?? '' }}"
-                                    placeholder="Ej. Excellent" class="admin-form-input" />
-                                @error('side_stone.cut') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
-                            </label>
+                    <div class="flex items-start justify-between gap-4">
+                        <div>
+                            <h4 class="text-sm font-medium text-[#3d4640] dark:text-[#eeeae2]">Piedras laterales</h4>
+                            <p class="mt-1 text-xs text-[#8a938d]">Agrega cada grupo físico de piedras por separado.</p>
                         </div>
+                        <button type="button" id="add-side-stone"
+                            class="aurea-focus inline-flex shrink-0 items-center rounded-lg border border-[#d8d9d2] px-3 py-2 text-xs font-medium text-[#59635c] hover:border-aurea-gold hover:text-[#806441]">
+                            Agregar piedra lateral
+                        </button>
                     </div>
+                    <div id="side-stones-list" class="mt-5 space-y-5">
+                        @foreach ($sideStones as $index => $sideStone)
+                            <div data-side-stone-group class="rounded-xl border border-[#e5e6e0] p-4 dark:border-[#4b4a45]">
+                                @if (filled($sideStone['id'] ?? null))
+                                    <input type="hidden" name="side_stones[{{ $index }}][id]" value="{{ $sideStone['id'] }}" />
+                                @endif
+                                <div class="mb-4 flex items-center justify-between gap-3">
+                                    <p class="text-xs font-semibold uppercase tracking-[.12em] text-[#806441]">Grupo lateral {{ $index + 1 }}</p>
+                                    <button type="button" data-remove-side-stone class="aurea-focus text-xs font-medium text-[#94594e] hover:text-[#713f37]">Eliminar grupo</button>
+                                </div>
+                                <div class="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+                                    <label>
+                                        <span class="admin-form-label">Tipo de piedra</span>
+                                        <select name="side_stones[{{ $index }}][stone_id]" class="admin-form-input" required>
+                                            <option value="">Selecciona una piedra</option>
+                                            @foreach ($stones as $stone)
+                                                <option value="{{ $stone->id }}" @selected((string) ($sideStone['stone_id'] ?? '') === (string) $stone->id)>{{ $stone->name }}</option>
+                                            @endforeach
+                                        </select>
+                                        @error("side_stones.{$index}.stone_id") <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                                    </label>
+                                    <label>
+                                        <span class="admin-form-label">Forma de la piedra</span>
+                                        <input type="text" name="side_stones[{{ $index }}][shape]" value="{{ $sideStone['shape'] ?? '' }}" placeholder="Ej. Redondo" class="admin-form-input" />
+                                        @error("side_stones.{$index}.shape") <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                                    </label>
+                                    <label>
+                                        <span class="admin-form-label">Quilates por piedra</span>
+                                        <input type="number" name="side_stones[{{ $index }}][carats]" value="{{ $sideStone['carats'] ?? '' }}" min="0" step="0.01" inputmode="decimal" placeholder="Ej. 0.20" class="admin-form-input" />
+                                        @error("side_stones.{$index}.carats") <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                                    </label>
+                                    <label>
+                                        <span class="admin-form-label">Cantidad</span>
+                                        <input type="number" name="side_stones[{{ $index }}][quantity]" value="{{ $sideStone['quantity'] ?? '' }}" min="1" step="1" placeholder="Ej. 2" class="admin-form-input" required />
+                                        @error("side_stones.{$index}.quantity") <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                                    </label>
+                                    <label>
+                                        <span class="admin-form-label">Origen</span>
+                                        <input type="text" name="side_stones[{{ $index }}][origin]" value="{{ $sideStone['origin'] ?? '' }}" placeholder="Ej. Laboratorio" class="admin-form-input" />
+                                        @error("side_stones.{$index}.origin") <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                                    </label>
+                                    <label>
+                                        <span class="admin-form-label">Certificación</span>
+                                        <input type="text" name="side_stones[{{ $index }}][certification]" value="{{ $sideStone['certification'] ?? '' }}" placeholder="Ej. IGI" class="admin-form-input" />
+                                        @error("side_stones.{$index}.certification") <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                                    </label>
+                                    <label>
+                                        <span class="admin-form-label">Color</span>
+                                        <input type="text" name="side_stones[{{ $index }}][color]" value="{{ $sideStone['color'] ?? '' }}" placeholder="Ej. G" class="admin-form-input" />
+                                        @error("side_stones.{$index}.color") <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                                    </label>
+                                    <label>
+                                        <span class="admin-form-label">Claridad</span>
+                                        <input type="text" name="side_stones[{{ $index }}][clarity]" value="{{ $sideStone['clarity'] ?? '' }}" placeholder="Ej. VS1" class="admin-form-input" />
+                                        @error("side_stones.{$index}.clarity") <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                                    </label>
+                                    <label>
+                                        <span class="admin-form-label">Corte</span>
+                                        <input type="text" name="side_stones[{{ $index }}][cut]" value="{{ $sideStone['cut'] ?? '' }}" placeholder="Ej. Excellent" class="admin-form-input" />
+                                        @error("side_stones.{$index}.cut") <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                                    </label>
+                                </div>
+                            </div>
+                        @endforeach
+                    </div>
+                    <p id="side-stones-empty" class="{{ $sideStones === [] ? '' : 'hidden' }} mt-5 rounded-lg bg-[#fbfbf9] px-4 py-3 text-xs text-[#8a938d] dark:bg-[#292b29]">No hay grupos laterales configurados.</p>
+                    <template id="side-stone-template">
+                        <div data-side-stone-group class="rounded-xl border border-[#e5e6e0] p-4 dark:border-[#4b4a45]">
+                            <div class="mb-4 flex items-center justify-between gap-3">
+                                <p data-side-stone-label class="text-xs font-semibold uppercase tracking-[.12em] text-[#806441]">Grupo lateral</p>
+                                <button type="button" data-remove-side-stone class="aurea-focus text-xs font-medium text-[#94594e] hover:text-[#713f37]">Eliminar grupo</button>
+                            </div>
+                            <div class="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+                                <label>
+                                    <span class="admin-form-label">Tipo de piedra</span>
+                                    <select name="side_stones[__INDEX__][stone_id]" class="admin-form-input" required>
+                                        <option value="">Selecciona una piedra</option>
+                                        @foreach ($stones as $stone)
+                                            <option value="{{ $stone->id }}">{{ $stone->name }}</option>
+                                        @endforeach
+                                    </select>
+                                </label>
+                                <label>
+                                    <span class="admin-form-label">Forma de la piedra</span>
+                                    <input type="text" name="side_stones[__INDEX__][shape]" placeholder="Ej. Redondo" class="admin-form-input" />
+                                </label>
+                                <label>
+                                    <span class="admin-form-label">Quilates por piedra</span>
+                                    <input type="number" name="side_stones[__INDEX__][carats]" min="0" step="0.01" inputmode="decimal" placeholder="Ej. 0.20" class="admin-form-input" />
+                                </label>
+                                <label>
+                                    <span class="admin-form-label">Cantidad</span>
+                                    <input type="number" name="side_stones[__INDEX__][quantity]" min="1" step="1" placeholder="Ej. 2" class="admin-form-input" required />
+                                </label>
+                                <label>
+                                    <span class="admin-form-label">Origen</span>
+                                    <input type="text" name="side_stones[__INDEX__][origin]" placeholder="Ej. Laboratorio" class="admin-form-input" />
+                                </label>
+                                <label>
+                                    <span class="admin-form-label">Certificación</span>
+                                    <input type="text" name="side_stones[__INDEX__][certification]" placeholder="Ej. IGI" class="admin-form-input" />
+                                </label>
+                                <label>
+                                    <span class="admin-form-label">Color</span>
+                                    <input type="text" name="side_stones[__INDEX__][color]" placeholder="Ej. G" class="admin-form-input" />
+                                </label>
+                                <label>
+                                    <span class="admin-form-label">Claridad</span>
+                                    <input type="text" name="side_stones[__INDEX__][clarity]" placeholder="Ej. VS1" class="admin-form-input" />
+                                </label>
+                                <label>
+                                    <span class="admin-form-label">Corte</span>
+                                    <input type="text" name="side_stones[__INDEX__][cut]" placeholder="Ej. Excellent" class="admin-form-input" />
+                                </label>
+                            </div>
+                        </div>
+                    </template>
                 </div>
             </div>
         </x-admin.form-section>
@@ -553,8 +627,10 @@
         const productSubcategorySelect = document.getElementById('product-subcategory');
         const productBaseSizeSelect = document.querySelector('[name="base_size_id"]');
         const categorySizes = @json($categorySizes);
-        const sideStonesToggle = document.getElementById('product-has-side-stones');
-        const sideStonesFields = document.getElementById('side-stones-fields');
+        const addSideStoneButton = document.getElementById('add-side-stone');
+        const sideStonesList = document.getElementById('side-stones-list');
+        const sideStonesEmpty = document.getElementById('side-stones-empty');
+        const sideStoneTemplate = document.getElementById('side-stone-template');
         const productImageUpload = document.getElementById('product-image-upload');
         const productImageDropzone = document.getElementById('product-image-dropzone');
         const productImageDropzoneTitle = document.getElementById('product-image-dropzone-title');
@@ -610,18 +686,42 @@
             updateApplicableSizes();
         };
 
-        const updateSideStonesFields = () => {
-            if (!sideStonesToggle || !sideStonesFields) {
+        const updateSideStoneLabels = () => {
+            sideStonesList?.querySelectorAll('[data-side-stone-group]').forEach((group, index) => {
+                const label = group.querySelector('[data-side-stone-label]');
+
+                if (label) {
+                    label.textContent = `Grupo lateral ${index + 1}`;
+                }
+            });
+
+            sideStonesEmpty?.classList.toggle('hidden', Boolean(sideStonesList?.children.length));
+        };
+
+        const bindSideStoneGroup = (group) => {
+            group.querySelector('[data-remove-side-stone]')?.addEventListener('click', () => {
+                group.remove();
+                updateSideStoneLabels();
+                updateSummary();
+            });
+        };
+
+        const addSideStoneGroup = () => {
+            if (!sideStoneTemplate || !sideStonesList) {
                 return;
             }
 
-            const isEnabled = sideStonesToggle.checked;
+            const index = sideStonesList.children.length;
+            const group = sideStoneTemplate.content.cloneNode(true);
+            const element = group.querySelector('[data-side-stone-group]');
 
-            sideStonesFields.classList.toggle('hidden', !isEnabled);
-            sideStonesFields.toggleAttribute('aria-hidden', !isEnabled);
-            sideStonesFields.querySelectorAll('input, select').forEach((field) => {
-                field.disabled = !isEnabled;
+            group.querySelectorAll('[name]').forEach((field) => {
+                field.name = field.name.replaceAll('__INDEX__', String(index));
             });
+            sideStonesList.append(group);
+            bindSideStoneGroup(element);
+            updateSideStoneLabels();
+            updateSummary();
         };
 
         const slugify = (value) => value
@@ -709,8 +809,9 @@
             updateProductCodeSuggestion();
         });
 
-        sideStonesToggle?.addEventListener('change', updateSideStonesFields);
-        updateSideStonesFields();
+        addSideStoneButton?.addEventListener('click', addSideStoneGroup);
+        sideStonesList?.querySelectorAll('[data-side-stone-group]').forEach(bindSideStoneGroup);
+        updateSideStoneLabels();
 
         productCategorySelect?.addEventListener('change', () => {
             updateSubcategories(true);
@@ -1175,7 +1276,7 @@
             const price = Number(value('[name="price"]'));
             const hasDetails = value('[name="price"]') !== '' && Number.isFinite(price) && price >= 0;
             const hasCentralStone = Boolean(value('[name="central_stone[stone_id]"]'));
-            const hasLateralStone = Boolean(sideStonesToggle?.checked && value('[name="side_stone[stone_id]"]') && value('[name="side_stone[quantity]"]'));
+            const hasLateralStone = Boolean(sideStonesList?.querySelector('[name$="[stone_id]"]')?.value);
             const imageCount = productGalleryList?.querySelectorAll('[data-existing-image]:not(.hidden)').length + newImages.length;
 
             updateSummaryItem('general', hasGeneral, 'Información general');

@@ -13,8 +13,6 @@
     $selectedStatus = old('status', $variant->status ?: 'active');
     $baseMaterialName = $productModel->material?->name;
     $baseSizeName = $productModel->baseSize?->name;
-    $baseStoneIds = $baseStoneIds ?? collect();
-
     if ((string) $selectedSizeId === (string) $productModel->base_size_id) {
         $selectedSizeId = null;
     }
@@ -29,10 +27,6 @@
 
     if ($selectedMetalColor !== null && $selectedMetalColor === $productModel->metal_color) {
         $selectedMetalColor = null;
-    }
-
-    if ($selectedStoneId !== null && $baseStoneIds->contains((int) $selectedStoneId)) {
-        $selectedStoneId = null;
     }
 
     $inheritedCost = $productModel->cost !== null ? '$'.number_format((float) $productModel->cost, 2). ' MXN' : 'sin valor base';
@@ -135,7 +129,7 @@
             <label>
                 <span class="admin-form-label">Piedra</span>
                 <select name="stone_id" class="admin-form-input">
-                    <option value="">Usar configuración de piedra del producto</option>
+                    <option value="">Sin piedra comercial asignada</option>
                     @foreach ($stones as $stone)
                         <option value="{{ $stone->id }}" @selected((string) $selectedStoneId === (string) $stone->id)>
                             {{ $stone->name }}

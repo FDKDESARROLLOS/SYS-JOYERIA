@@ -161,6 +161,10 @@ class ProductController extends Controller
                     'parent' => fn ($parentQuery) => $parentQuery->withTrashed(),
                 ]),
             'productStones.stone',
+            'productStones' => fn ($query) => $query
+                ->orderBy('position')
+                ->orderBy('sort_order')
+                ->orderBy('id'),
             'images' => fn ($query) => $query
                 ->orderBy('sort_order')
                 ->orderBy('id'),
@@ -305,6 +309,12 @@ class ProductController extends Controller
     private function validatedProductData(Request $request, ?Product $product = null): array
     {
         $input = $request->all();
+
+        if (! array_key_exists('side_stones', $input) && is_array($input['side_stone'] ?? null)) {
+            $input['side_stones'] = [$input['side_stone']];
+        }
+
+        $input['side_stones'] ??= [];
         $salePrice = $input['sale_price'] ?? null;
 
         if ($salePrice === null
@@ -394,6 +404,31 @@ class ProductController extends Controller
                 );
             }
         });
+        $validator->after(function ($validator) use ($input, $product): void {
+            if ($product === null || ! is_array($input['side_stones'] ?? null)) {
+                return;
+            }
+
+            foreach ($input['side_stones'] as $index => $sideStone) {
+                $productStoneId = $sideStone['id'] ?? null;
+
+                if (! filled($productStoneId)) {
+                    continue;
+                }
+
+                $belongsToProduct = $product->productStones()
+                    ->whereKey((int) $productStoneId)
+                    ->where('position', 'lateral')
+                    ->exists();
+
+                if (! $belongsToProduct) {
+                    $validator->errors()->add(
+                        "side_stones.{$index}.id",
+                        'La piedra lateral no pertenece a este producto.',
+                    );
+                }
+            }
+        });
 
         $validated = $validator->validate();
 
@@ -471,7 +506,6 @@ class ProductController extends Controller
             'featured' => ['sometimes', 'boolean'],
             'is_new' => ['sometimes', 'boolean'],
             'bestseller' => ['sometimes', 'boolean'],
-            'has_side_stones' => ['sometimes', 'boolean'],
             'central_stone' => ['nullable', 'array'],
             'central_stone.stone_id' => [
                 'nullable',
@@ -487,28 +521,24 @@ class ProductController extends Controller
             'central_stone.color' => ['nullable', 'string', 'max:255'],
             'central_stone.clarity' => ['nullable', 'string', 'max:255'],
             'central_stone.cut' => ['nullable', 'string', 'max:255'],
-            'side_stone' => ['nullable', 'array'],
-            'side_stone.stone_id' => [
-                Rule::requiredIf($request->boolean('has_side_stones')),
-                'nullable',
+            'side_stones' => ['nullable', 'array', 'max:50'],
+            'side_stones.*' => ['required', 'array'],
+            'side_stones.*.id' => ['nullable', 'integer', 'distinct'],
+            'side_stones.*.stone_id' => [
+                'required',
                 'integer',
                 Rule::exists('stones', 'id')
                     ->where('status', true)
                     ->whereNull('deleted_at'),
             ],
-            'side_stone.shape' => ['nullable', 'string', 'max:255'],
-            'side_stone.carats' => ['nullable', 'numeric', 'min:0'],
-            'side_stone.quantity' => [
-                Rule::requiredIf($request->boolean('has_side_stones')),
-                'nullable',
-                'integer',
-                'min:1',
-            ],
-            'side_stone.origin' => ['nullable', 'string', 'max:255'],
-            'side_stone.certification' => ['nullable', 'string', 'max:255'],
-            'side_stone.color' => ['nullable', 'string', 'max:255'],
-            'side_stone.clarity' => ['nullable', 'string', 'max:255'],
-            'side_stone.cut' => ['nullable', 'string', 'max:255'],
+            'side_stones.*.shape' => ['nullable', 'string', 'max:255'],
+            'side_stones.*.carats' => ['nullable', 'numeric', 'min:0'],
+            'side_stones.*.quantity' => ['required', 'integer', 'min:1'],
+            'side_stones.*.origin' => ['nullable', 'string', 'max:255'],
+            'side_stones.*.certification' => ['nullable', 'string', 'max:255'],
+            'side_stones.*.color' => ['nullable', 'string', 'max:255'],
+            'side_stones.*.clarity' => ['nullable', 'string', 'max:255'],
+            'side_stones.*.cut' => ['nullable', 'string', 'max:255'],
             'images' => ['nullable', 'array'],
             'images.*' => ['image', 'mimes:jpg,jpeg,png,webp', 'max:2048'],
             'image_alt' => ['nullable', 'array'],
@@ -861,20 +891,34 @@ class ProductController extends Controller
     private function syncProductStones(Product $product, array $validated): void
     {
         $centralStone = $validated['central_stone'] ?? [];
-        $sideStone = $validated['side_stone'] ?? [];
 
         $this->syncStonePosition($product, 'central', $centralStone, 1);
 
-        $hasSideStones = filter_var($validated['has_side_stones'] ?? false, FILTER_VALIDATE_BOOLEAN);
+        $existingSideStones = $product->productStones()
+            ->where('position', 'lateral')
+            ->get()
+            ->keyBy('id');
+        $submittedSideStoneIds = [];
 
-        if ($hasSideStones && filled($sideStone['stone_id'] ?? null)) {
-            $this->syncStonePosition($product, 'lateral', $sideStone, (int) $sideStone['quantity']);
+        foreach ($validated['side_stones'] ?? [] as $sortOrder => $sideStone) {
+            $productStone = filled($sideStone['id'] ?? null)
+                ? $existingSideStones->get((int) $sideStone['id'])
+                : null;
+            $attributes = $this->productStoneAttributes($sideStone, 'lateral', $sortOrder + 1);
 
-            return;
+            if ($productStone !== null) {
+                $productStone->update($attributes);
+                $submittedSideStoneIds[] = $productStone->getKey();
+
+                continue;
+            }
+
+            $submittedSideStoneIds[] = $product->productStones()->create($attributes)->getKey();
         }
 
         $product->productStones()
             ->where('position', 'lateral')
+            ->when($submittedSideStoneIds !== [], fn ($query) => $query->whereNotIn('id', $submittedSideStoneIds))
             ->delete();
     }
 
@@ -894,18 +938,7 @@ class ProductController extends Controller
         $productStone = $product->productStones()
             ->where('position', $position)
             ->first();
-        $attributes = [
-            'stone_id' => $stoneData['stone_id'],
-            'position' => $position,
-            'shape' => $stoneData['shape'] ?? null,
-            'carats' => $stoneData['carats'] ?? null,
-            'quantity' => $quantity,
-            'origin' => $stoneData['origin'] ?? null,
-            'certification' => $stoneData['certification'] ?? null,
-            'color' => $stoneData['color'] ?? null,
-            'clarity' => $stoneData['clarity'] ?? null,
-            'cut' => $stoneData['cut'] ?? null,
-        ];
+        $attributes = $this->productStoneAttributes($stoneData, $position, 1, $quantity);
 
         if ($productStone) {
             $productStone->update($attributes);
@@ -918,6 +951,31 @@ class ProductController extends Controller
         }
 
         $product->productStones()->create($attributes);
+    }
+
+    /**
+     * @param  array<string, mixed>  $stoneData
+     * @return array<string, mixed>
+     */
+    private function productStoneAttributes(
+        array $stoneData,
+        string $position,
+        int $sortOrder,
+        ?int $quantity = null,
+    ): array {
+        return [
+            'stone_id' => $stoneData['stone_id'],
+            'position' => $position,
+            'sort_order' => $sortOrder,
+            'shape' => $stoneData['shape'] ?? null,
+            'carats' => $stoneData['carats'] ?? null,
+            'quantity' => $quantity ?? (int) $stoneData['quantity'],
+            'origin' => $stoneData['origin'] ?? null,
+            'certification' => $stoneData['certification'] ?? null,
+            'color' => $stoneData['color'] ?? null,
+            'clarity' => $stoneData['clarity'] ?? null,
+            'cut' => $stoneData['cut'] ?? null,
+        ];
     }
 
     private function syncProductImages(Product $product, Request $request): void

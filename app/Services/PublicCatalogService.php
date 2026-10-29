@@ -70,6 +70,7 @@ class PublicCatalogService
                     'product_id',
                     'stone_id',
                     'position',
+                    'sort_order',
                     'shape',
                     'carats',
                     'quantity',
@@ -80,6 +81,9 @@ class PublicCatalogService
                     'cut',
                 ])
                 ->whereHas('stone', fn ($stone) => $stone->where('status', true))
+                ->orderBy('position')
+                ->orderBy('sort_order')
+                ->orderBy('id')
                 ->with(['stone' => fn ($stone) => $stone->where('status', true)->select(['id', 'name'])]),
             'images' => fn ($query) => $query
                 ->orderByDesc('is_cover')

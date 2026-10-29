@@ -5,11 +5,6 @@
         $baseValues = [
             'material' => $productModel->material?->name ?? '—',
             'size' => $productModel->baseSize?->name ?? '—',
-            'stone' => $productModel->productStones
-                ->pluck('stone.name')
-                ->filter()
-                ->unique()
-                ->implode(', ') ?: '—',
             'karat' => $productModel->karat ? $productModel->karat . 'K' : '—',
             'metal_color' => $productModel->metal_color ?: '—',
         ];
@@ -76,7 +71,7 @@
                                     {{ $variant->material?->name ?? $baseValues['material'] }} ·
                                     {{ $effectiveValue($variant, 'karat') }} ·
                                     {{ $effectiveValue($variant, 'metal_color') }} ·
-                                    {{ $variant->stone?->name ?? $baseValues['stone'] }}
+                                    {{ $variant->stone?->name ?? '—' }}
                                 </td>
                                 <td class="px-3 py-4 font-medium {{ $variant->inventoryStock?->current_stock > 0 ? 'text-[#5b8668]' : 'text-[#929b94]' }}">
                                     {{ $variant->inventoryStock?->current_stock ?? 0 }}
@@ -110,7 +105,7 @@
                                 <p class="mt-1 text-xs text-[#929b94]">
                                     {{ $variant->size?->name ?? $baseValues['size'] }} ·
                                     {{ $variant->material?->name ?? $baseValues['material'] }} ·
-                                    {{ $variant->stone?->name ?? $baseValues['stone'] }}
+                                    {{ $variant->stone?->name ?? '—' }}
                                 </p>
                             </div>
                             <span class="text-sm font-medium {{ $variant->inventoryStock?->current_stock > 0 ? 'text-[#5b8668]' : 'text-[#929b94]' }}">

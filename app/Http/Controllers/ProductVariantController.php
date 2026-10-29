@@ -30,7 +30,6 @@ class ProductVariantController extends Controller
             'category.parent',
             'material:id,name',
             'baseSize:id,name',
-            'productStones.stone:id,name',
             'images' => fn ($query) => $query
                 ->orderByDesc('is_cover')
                 ->orderBy('sort_order')
@@ -61,7 +60,6 @@ class ProductVariantController extends Controller
             'category.parent',
             'material' => fn ($query) => $query->withTrashed()->select(['id', 'name']),
             'baseSize' => fn ($query) => $query->withTrashed()->select(['id', 'name']),
-            'productStones.stone' => fn ($query) => $query->withTrashed()->select(['id', 'name']),
             'images' => fn ($query) => $query
                 ->orderByDesc('is_cover')
                 ->orderBy('sort_order')
@@ -94,7 +92,6 @@ class ProductVariantController extends Controller
             'images',
             'baseSize',
             'material' => fn ($query) => $query->withTrashed(),
-            'productStones',
         ]);
 
         return view('products.variants.create', [
@@ -132,7 +129,6 @@ class ProductVariantController extends Controller
             'images',
             'baseSize',
             'material' => fn ($query) => $query->withTrashed(),
-            'productStones',
         ]);
 
         return view('products.variants.edit', [
@@ -408,9 +404,6 @@ class ProductVariantController extends Controller
      */
     private function formOptions(Product $product): array
     {
-        $product->loadMissing(['baseSize', 'productStones']);
-        $baseStoneIds = $product->productStones->pluck('stone_id');
-
         $karatOptions = [
             10 => '10K',
             14 => '14K',
@@ -435,12 +428,10 @@ class ProductVariantController extends Controller
                 ->get(['id', 'name']),
             'stones' => Stone::query()
                 ->where('status', true)
-                ->when($baseStoneIds->isNotEmpty(), fn ($query) => $query->whereNotIn('id', $baseStoneIds))
                 ->orderBy('name')
                 ->get(['id', 'name']),
             'karatOptions' => $karatOptions,
             'metalColorOptions' => $metalColorOptions,
-            'baseStoneIds' => $baseStoneIds,
         ];
     }
 
@@ -450,8 +441,6 @@ class ProductVariantController extends Controller
      */
     private function normalizeInheritedAttributes(array $input, Product $product): array
     {
-        $product->loadMissing(['baseSize', 'productStones']);
-
         if (filled($input['material_id'] ?? null) && (int) $input['material_id'] === (int) $product->material_id) {
             $input['material_id'] = null;
         }
@@ -467,11 +456,6 @@ class ProductVariantController extends Controller
 
         if (filled($input['size_id'] ?? null) && (int) $input['size_id'] === (int) $product->base_size_id) {
             $input['size_id'] = null;
-        }
-
-        if (filled($input['stone_id'] ?? null)
-            && $product->productStones->pluck('stone_id')->contains((int) $input['stone_id'])) {
-            $input['stone_id'] = null;
         }
 
         return $input;

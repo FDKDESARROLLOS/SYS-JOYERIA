@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
     'product_id',
     'stone_id',
     'position',
+    'sort_order',
     'shape',
     'carats',
     'quantity',
@@ -29,6 +30,7 @@ class ProductStone extends Model
         return [
             'carats' => 'decimal:2',
             'quantity' => 'integer',
+            'sort_order' => 'integer',
         ];
     }
 

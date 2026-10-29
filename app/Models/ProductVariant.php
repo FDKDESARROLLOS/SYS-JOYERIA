@@ -84,7 +84,7 @@ class ProductVariant extends Model
             'material' => $this->material?->name ?? $product?->material?->name,
             'karat' => $this->karat ?? $product?->karat,
             'metal_color' => $this->metal_color ?? $product?->metal_color,
-            'stone' => $this->stone?->name ?? $product?->productStones?->first()?->stone?->name,
+            'stone' => $this->stone?->name,
         ];
     }
 

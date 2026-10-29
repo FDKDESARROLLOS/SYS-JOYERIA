@@ -234,13 +234,12 @@ class ProductTest extends TestCase
 
         $html = $this->actingAs($admin)->get(route('products.edit', $product))->getContent();
 
-        $this->assertSame(1, substr_count($html, 'class="peer sr-only"'));
-        $this->assertSame(1, substr_count($html, 'admin-toggle-track'));
+        $this->assertSame(0, substr_count($html, 'class="peer sr-only"'));
+        $this->assertSame(0, substr_count($html, 'admin-toggle-track'));
         $this->assertStringNotContainsString('id="product-featured"', $html);
         $this->assertStringNotContainsString('id="product-new"', $html);
         $this->assertStringNotContainsString('id="product-bestseller"', $html);
-        $this->assertStringContainsString('id="product-has-side-stones"', $html);
-        $this->assertStringContainsString('peer-checked:after:translate-x-4', $html);
+        $this->assertStringContainsString('id="add-side-stone"', $html);
     }
 
     public function test_product_form_only_shows_active_non_deleted_relations_and_applicable_sizes(): void
@@ -733,11 +732,10 @@ class ProductTest extends TestCase
             ->post(route('products.store'), $this->productPayload($category, null, null, null, [
                 'code' => 'PRD-002',
                 'base_sku' => 'PRD-002',
-                'has_side_stones' => '1',
-                'side_stone' => [
+                'side_stones' => [[
                     'stone_id' => $stone->id,
                     'quantity' => 2,
-                ],
+                ]],
             ]))
             ->assertRedirect(route('products.index'));
 
@@ -830,8 +828,7 @@ class ProductTest extends TestCase
         $category = $this->createCategory();
         $stone = $this->createStone();
         $payload = $this->productPayload($category, null, null, null, [
-            'has_side_stones' => '1',
-            'side_stone' => [
+            'side_stones' => [[
                 'stone_id' => $stone->id,
                 'shape' => 'Redondo',
                 'carats' => '0.10',
@@ -841,7 +838,7 @@ class ProductTest extends TestCase
                 'color' => 'G',
                 'clarity' => 'VS2',
                 'cut' => 'Excellent',
-            ],
+            ]],
         ]);
 
         $this->actingAs($admin)
@@ -856,6 +853,180 @@ class ProductTest extends TestCase
             'position' => 'lateral',
             'quantity' => 6,
         ]);
+    }
+
+    public function test_product_can_be_created_with_multiple_lateral_stone_groups(): void
+    {
+        $admin = User::factory()->create();
+        $category = $this->createCategory();
+        $diamond = $this->createStone();
+        $sapphire = $this->createStone(['name' => 'Zafiro', 'slug' => 'zafiro']);
+        $payload = $this->productPayload($category, null, null, null, [
+            'side_stones' => [
+                [
+                    'stone_id' => $diamond->id,
+                    'shape' => 'Redondo',
+                    'carats' => '0.20',
+                    'quantity' => 2,
+                ],
+                [
+                    'stone_id' => $sapphire->id,
+                    'shape' => 'Redondo',
+                    'carats' => '0.15',
+                    'quantity' => 2,
+                ],
+            ],
+        ]);
+
+        $this->actingAs($admin)
+            ->post(route('products.store'), $payload)
+            ->assertRedirect(route('products.index'));
+
+        $product = Product::query()->where('code', $payload['code'])->firstOrFail();
+
+        $this->assertDatabaseHas('product_stones', [
+            'product_id' => $product->id,
+            'stone_id' => $diamond->id,
+            'position' => 'lateral',
+            'sort_order' => 1,
+            'quantity' => 2,
+            'carats' => '0.20',
+        ]);
+        $this->assertDatabaseHas('product_stones', [
+            'product_id' => $product->id,
+            'stone_id' => $sapphire->id,
+            'position' => 'lateral',
+            'sort_order' => 2,
+            'quantity' => 2,
+            'carats' => '0.15',
+        ]);
+        $this->assertSame(1, $product->variants()->count());
+        $this->assertDatabaseCount('inventory_stocks', 1);
+    }
+
+    public function test_product_can_have_multiple_lateral_groups_for_the_same_stone(): void
+    {
+        $admin = User::factory()->create();
+        $category = $this->createCategory();
+        $diamond = $this->createStone();
+
+        $this->actingAs($admin)
+            ->post(route('products.store'), $this->productPayload($category, null, null, null, [
+                'side_stones' => [
+                    [
+                        'stone_id' => $diamond->id,
+                        'shape' => 'Redondo',
+                        'carats' => '0.20',
+                        'quantity' => 2,
+                    ],
+                    [
+                        'stone_id' => $diamond->id,
+                        'shape' => 'Baguette',
+                        'carats' => '0.10',
+                        'quantity' => 2,
+                    ],
+                ],
+            ]))
+            ->assertRedirect(route('products.index'));
+
+        $this->assertSame(2, ProductStone::query()
+            ->where('stone_id', $diamond->id)
+            ->where('position', 'lateral')
+            ->count());
+    }
+
+    public function test_product_can_edit_lateral_groups_independently(): void
+    {
+        $admin = User::factory()->create();
+        $category = $this->createCategory();
+        $diamond = $this->createStone();
+        $sapphire = $this->createStone(['name' => 'Zafiro', 'slug' => 'zafiro']);
+        $emerald = $this->createStone(['name' => 'Esmeralda', 'slug' => 'esmeralda']);
+        $product = Product::create($this->productPayload($category));
+        $diamondGroup = ProductStone::create([
+            'product_id' => $product->id,
+            'stone_id' => $diamond->id,
+            'position' => 'lateral',
+            'sort_order' => 1,
+            'quantity' => 2,
+            'carats' => '0.20',
+        ]);
+        $sapphireGroup = ProductStone::create([
+            'product_id' => $product->id,
+            'stone_id' => $sapphire->id,
+            'position' => 'lateral',
+            'sort_order' => 2,
+            'quantity' => 2,
+            'carats' => '0.15',
+        ]);
+
+        $this->actingAs($admin)
+            ->patch(route('products.update', $product), $this->productPayload($category, null, null, null, [
+                'side_stones' => [
+                    [
+                        'id' => $diamondGroup->id,
+                        'stone_id' => $diamond->id,
+                        'carats' => '0.25',
+                        'quantity' => 3,
+                    ],
+                    [
+                        'stone_id' => $emerald->id,
+                        'carats' => '0.10',
+                        'quantity' => 4,
+                    ],
+                ],
+            ]))
+            ->assertRedirect(route('products.index'));
+
+        $this->assertDatabaseHas('product_stones', [
+            'id' => $diamondGroup->id,
+            'stone_id' => $diamond->id,
+            'quantity' => 3,
+            'carats' => '0.25',
+            'sort_order' => 1,
+        ]);
+        $this->assertDatabaseMissing('product_stones', ['id' => $sapphireGroup->id]);
+        $this->assertDatabaseHas('product_stones', [
+            'product_id' => $product->id,
+            'stone_id' => $emerald->id,
+            'position' => 'lateral',
+            'quantity' => 4,
+            'sort_order' => 2,
+        ]);
+    }
+
+    public function test_product_stone_ids_must_belong_to_the_product_being_edited(): void
+    {
+        $admin = User::factory()->create();
+        $category = $this->createCategory();
+        $stone = $this->createStone();
+        $product = Product::create($this->productPayload($category));
+        $otherProduct = Product::create($this->productPayload($category, null, null, null, [
+            'code' => 'PRD-002',
+            'base_sku' => 'SKU-002',
+            'slug' => 'producto-dos',
+        ]));
+        $otherGroup = ProductStone::create([
+            'product_id' => $otherProduct->id,
+            'stone_id' => $stone->id,
+            'position' => 'lateral',
+            'quantity' => 2,
+        ]);
+
+        $response = $this->actingAs($admin)->patch(
+            route('products.update', $product),
+            $this->productPayload($category, null, null, null, [
+                'side_stones' => [[
+                    'id' => $otherGroup->id,
+                    'stone_id' => $stone->id,
+                    'quantity' => 2,
+                ]],
+            ]),
+        );
+
+        $response->assertSessionHasErrors('side_stones.0.id');
+        $this->assertDatabaseHas('product_stones', ['id' => $otherGroup->id, 'product_id' => $otherProduct->id]);
+        $this->assertDatabaseCount('product_stones', 1);
     }
 
     public function test_product_edit_loads_product_stones_with_their_stones(): void
@@ -923,11 +1094,10 @@ class ProductTest extends TestCase
         $stone = $this->createStone();
         $product = Product::create($this->productPayload($category));
         $payload = $this->productPayload($category, null, null, null, [
-            'has_side_stones' => '1',
-            'side_stone' => [
+            'side_stones' => [[
                 'stone_id' => $stone->id,
                 'quantity' => 3,
-            ],
+            ]],
         ]);
 
         $this->actingAs($admin)
@@ -1042,7 +1212,7 @@ class ProductTest extends TestCase
 
         $response = $this->actingAs($admin)->post(route('products.store'), $payload);
 
-        $response->assertSessionHasErrors(['side_stone.quantity']);
+        $response->assertSessionHasErrors(['side_stones.0.quantity']);
         $this->assertDatabaseCount('products', 0);
     }
 

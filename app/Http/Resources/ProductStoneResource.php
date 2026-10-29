@@ -16,30 +16,17 @@ class ProductStoneResource extends JsonResource
         /** @var ProductStone $productStone */
         $productStone = $this->resource;
 
-        if ($productStone->position === 'lateral') {
-            return [
-                'enabled' => true,
-                'name' => $productStone->stone?->name,
-                'shape' => $productStone->shape,
-                'carats_per_stone' => $productStone->carats,
-                'quantity' => $productStone->quantity,
-                'origin' => $productStone->origin,
-                'certification' => $productStone->certification,
-                'color' => $productStone->color,
-                'clarity' => $productStone->clarity,
-                'cut' => $productStone->cut,
-            ];
-        }
-
         return [
             'name' => $productStone->stone?->name,
             'shape' => $productStone->shape,
-            'carats' => $productStone->carats,
+            'carats_per_stone' => $productStone->carats,
+            'quantity' => $productStone->quantity,
             'origin' => $productStone->origin,
             'certification' => $productStone->certification,
             'color' => $productStone->color,
             'clarity' => $productStone->clarity,
             'cut' => $productStone->cut,
+            'sort_order' => $productStone->sort_order,
         ];
     }
 }

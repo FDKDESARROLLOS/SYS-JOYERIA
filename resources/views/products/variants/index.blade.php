@@ -5,11 +5,6 @@
         $baseValues = [
             'material' => $productModel->material?->name ?? '—',
             'size' => $productModel->baseSize?->name ?? '—',
-            'stone' => $productModel->productStones
-                ->pluck('stone.name')
-                ->filter()
-                ->unique()
-                ->implode(', ') ?: '—',
             'karat' => $productModel->karat ? $productModel->karat . 'K' : '—',
             'metal_color' => $productModel->metal_color ?: '—',
             'cost' => $productModel->cost !== null ? '$' . number_format((float) $productModel->cost, 2) . ' MXN' : '—',
@@ -105,7 +100,7 @@
                                 <td class="px-3 py-4">{{ $variant->material?->name ?? $baseValues['material'] }}</td>
                                 <td class="px-3 py-4">{{ $effectiveValue($variant, 'karat') }}</td>
                                 <td class="px-3 py-4">{{ $effectiveValue($variant, 'metal_color') }}</td>
-                                <td class="px-3 py-4">{{ $variant->stone?->name ?? $baseValues['stone'] }}</td>
+                                <td class="px-3 py-4">{{ $variant->stone?->name ?? '—' }}</td>
                                 <td class="px-3 py-4 font-medium text-[#343d37]">{{ $effectiveValue($variant, 'price') }}</td>
                                 <td class="px-3 py-4">
                                     <x-admin.status-badge
@@ -145,7 +140,7 @@
                                 <div class="min-w-0">
                                     <p class="text-sm font-medium text-[#343d37]">{{ $variant->sku }}</p>
                                     <p class="mt-1 text-xs text-[#929b94]">
-                                        Talla {{ $variant->size?->name ?? $baseValues['size'] }} · {{ $effectiveValue($variant, 'metal_color') }} · {{ $variant->stone?->name ?? $baseValues['stone'] }}
+                                        Talla {{ $variant->size?->name ?? $baseValues['size'] }} · {{ $effectiveValue($variant, 'metal_color') }} · {{ $variant->stone?->name ?? '—' }}
                                     </p>
                                 </div>
                             </div>

@@ -269,15 +269,53 @@ class PublicCatalogApiTest extends TestCase
         $response
             ->assertOk()
             ->assertJsonPath('data.stones.center.name', 'Zirconia')
-            ->assertJsonPath('data.stones.center.carats', '1.00')
+            ->assertJsonPath('data.stones.center.carats_per_stone', '1.00')
             ->assertJsonPath('data.stones.center.certification', 'IGF')
-            ->assertJsonPath('data.stones.side.enabled', true)
-            ->assertJsonPath('data.stones.side.name', 'Diamante')
-            ->assertJsonPath('data.stones.side.carats_per_stone', '0.25')
-            ->assertJsonPath('data.stones.side.quantity', 2)
+            ->assertJsonPath('data.stones.side.0.name', 'Diamante')
+            ->assertJsonPath('data.stones.side.0.carats_per_stone', '0.25')
+            ->assertJsonPath('data.stones.side.0.quantity', 2)
             ->assertJsonMissingPath('data.stones.center.id')
             ->assertJsonMissingPath('data.stones.side.product_id')
             ->assertJsonMissingPath('data.stones.center.created_at');
+    }
+
+    public function test_variant_commercial_stone_does_not_fallback_to_product_stone_composition(): void
+    {
+        $product = $this->createProduct(['slug' => 'piedra-comercial-separada']);
+        $physicalStone = Stone::create([
+            'name' => 'Zirconia física',
+            'slug' => 'zirconia-fisica',
+            'status' => true,
+        ]);
+        $commercialStone = Stone::create([
+            'name' => 'Diamante comercial',
+            'slug' => 'diamante-comercial',
+            'status' => true,
+        ]);
+        ProductStone::create([
+            'product_id' => $product->id,
+            'stone_id' => $physicalStone->id,
+            'position' => 'central',
+        ]);
+        $unassignedVariant = $product->variants()->firstOrFail();
+        $assignedVariant = $this->createVariant($product, [
+            'sku' => 'COMERCIAL-ASIGNADA',
+            'stone_id' => $commercialStone->id,
+        ]);
+
+        $response = $this->getJson('/api/v1/products/'.$product->slug);
+        $variants = collect($response->json('data.variants'))
+            ->keyBy('sku');
+
+        $this->assertNull($variants->get($unassignedVariant->sku)['attributes']['stone']);
+        $this->assertSame(
+            'Diamante comercial',
+            $variants->get($assignedVariant->sku)['attributes']['stone'],
+        );
+        $this->assertNotSame(
+            'Zirconia física',
+            $variants->get($assignedVariant->sku)['attributes']['stone'],
+        );
     }
 
     public function test_detail_represents_missing_lateral_stones_without_placeholders(): void
@@ -294,10 +332,38 @@ class PublicCatalogApiTest extends TestCase
 
         $response
             ->assertOk()
-            ->assertJsonPath('data.stones.side.enabled', false)
-            ->assertJsonPath('data.stones.side.name', null)
-            ->assertJsonPath('data.stones.side.certification', null)
+            ->assertJsonPath('data.stones.side', [])
             ->assertJsonMissing(['Ej. Laboratorio', 'Ej. IGI', 'Ej. G']);
+    }
+
+    public function test_detail_exposes_all_lateral_stone_groups_in_sort_order(): void
+    {
+        $product = $this->createProduct(['slug' => 'varias-piedras-laterales']);
+        $diamond = Stone::create(['name' => 'Diamante', 'slug' => 'diamante', 'status' => true]);
+        $sapphire = Stone::create(['name' => 'Zafiro', 'slug' => 'zafiro', 'status' => true]);
+        ProductStone::create([
+            'product_id' => $product->id,
+            'stone_id' => $sapphire->id,
+            'position' => 'lateral',
+            'sort_order' => 2,
+            'carats' => '0.15',
+            'quantity' => 2,
+        ]);
+        ProductStone::create([
+            'product_id' => $product->id,
+            'stone_id' => $diamond->id,
+            'position' => 'lateral',
+            'sort_order' => 1,
+            'carats' => '0.20',
+            'quantity' => 2,
+        ]);
+
+        $this->getJson('/api/v1/products/'.$product->slug)
+            ->assertOk()
+            ->assertJsonPath('data.stones.side.0.name', 'Diamante')
+            ->assertJsonPath('data.stones.side.0.carats_per_stone', '0.20')
+            ->assertJsonPath('data.stones.side.1.name', 'Zafiro')
+            ->assertJsonPath('data.stones.side.1.carats_per_stone', '0.15');
     }
 
     public function test_images_use_public_urls_and_the_cover_sort_order(): void
