@@ -261,7 +261,8 @@ class PublicCatalogApiTest extends TestCase
             'position' => 'lateral',
             'shape' => 'Cuadrada',
             'carats' => '0.25',
-            'quantity' => 2,
+            'quantity' => 4,
+            'stones_per_side' => 2,
         ]);
 
         $response = $this->getJson('/api/v1/products/'.$product->slug);
@@ -270,10 +271,12 @@ class PublicCatalogApiTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.stones.center.name', 'Zirconia')
             ->assertJsonPath('data.stones.center.carats_per_stone', '1.00')
+            ->assertJsonPath('data.stones.center.stones_per_side', null)
             ->assertJsonPath('data.stones.center.certification', 'IGF')
             ->assertJsonPath('data.stones.side.0.name', 'Diamante')
             ->assertJsonPath('data.stones.side.0.carats_per_stone', '0.25')
-            ->assertJsonPath('data.stones.side.0.quantity', 2)
+            ->assertJsonPath('data.stones.side.0.quantity', 4)
+            ->assertJsonPath('data.stones.side.0.stones_per_side', 2)
             ->assertJsonMissingPath('data.stones.center.id')
             ->assertJsonMissingPath('data.stones.side.product_id')
             ->assertJsonMissingPath('data.stones.center.created_at');
@@ -348,6 +351,7 @@ class PublicCatalogApiTest extends TestCase
             'sort_order' => 2,
             'carats' => '0.15',
             'quantity' => 2,
+            'stones_per_side' => 1,
         ]);
         ProductStone::create([
             'product_id' => $product->id,
@@ -356,14 +360,17 @@ class PublicCatalogApiTest extends TestCase
             'sort_order' => 1,
             'carats' => '0.20',
             'quantity' => 2,
+            'stones_per_side' => 1,
         ]);
 
         $this->getJson('/api/v1/products/'.$product->slug)
             ->assertOk()
             ->assertJsonPath('data.stones.side.0.name', 'Diamante')
             ->assertJsonPath('data.stones.side.0.carats_per_stone', '0.20')
+            ->assertJsonPath('data.stones.side.0.stones_per_side', 1)
             ->assertJsonPath('data.stones.side.1.name', 'Zafiro')
-            ->assertJsonPath('data.stones.side.1.carats_per_stone', '0.15');
+            ->assertJsonPath('data.stones.side.1.carats_per_stone', '0.15')
+            ->assertJsonPath('data.stones.side.1.stones_per_side', 1);
     }
 
     public function test_images_use_public_urls_and_the_cover_sort_order(): void

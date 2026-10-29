@@ -24,6 +24,7 @@ class ProductStoneTest extends TestCase
             'shape',
             'carats',
             'quantity',
+            'stones_per_side',
             'origin',
             'certification',
             'color',
@@ -32,6 +33,7 @@ class ProductStoneTest extends TestCase
         ], $productStone->getFillable());
         $this->assertSame('decimal:2', $productStone->getCasts()['carats']);
         $this->assertSame('integer', $productStone->getCasts()['quantity']);
+        $this->assertSame('integer', $productStone->getCasts()['stones_per_side']);
     }
 
     public function test_product_stone_defines_its_product_and_stone_relationships(): void

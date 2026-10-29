@@ -21,6 +21,7 @@ class ProductStoneResource extends JsonResource
             'shape' => $productStone->shape,
             'carats_per_stone' => $productStone->carats,
             'quantity' => $productStone->quantity,
+            'stones_per_side' => $productStone->stones_per_side,
             'origin' => $productStone->origin,
             'certification' => $productStone->certification,
             'color' => $productStone->color,

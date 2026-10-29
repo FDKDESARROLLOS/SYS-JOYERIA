@@ -74,6 +74,7 @@ class PublicCatalogService
                     'shape',
                     'carats',
                     'quantity',
+                    'stones_per_side',
                     'origin',
                     'certification',
                     'color',

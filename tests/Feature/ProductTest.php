@@ -734,7 +734,7 @@ class ProductTest extends TestCase
                 'base_sku' => 'PRD-002',
                 'side_stones' => [[
                     'stone_id' => $stone->id,
-                    'quantity' => 2,
+                    'stones_per_side' => 1,
                 ]],
             ]))
             ->assertRedirect(route('products.index'));
@@ -822,7 +822,7 @@ class ProductTest extends TestCase
         ]);
     }
 
-    public function test_product_can_be_created_with_lateral_stones_and_quantity(): void
+    public function test_product_can_be_created_with_lateral_stones_and_stones_per_side(): void
     {
         $admin = User::factory()->create();
         $category = $this->createCategory();
@@ -832,7 +832,8 @@ class ProductTest extends TestCase
                 'stone_id' => $stone->id,
                 'shape' => 'Redondo',
                 'carats' => '0.10',
-                'quantity' => 6,
+                'stones_per_side' => 3,
+                'quantity' => 99,
                 'origin' => 'Laboratorio',
                 'certification' => 'IGI',
                 'color' => 'G',
@@ -852,6 +853,7 @@ class ProductTest extends TestCase
             'stone_id' => $stone->id,
             'position' => 'lateral',
             'quantity' => 6,
+            'stones_per_side' => 3,
         ]);
     }
 
@@ -867,13 +869,13 @@ class ProductTest extends TestCase
                     'stone_id' => $diamond->id,
                     'shape' => 'Redondo',
                     'carats' => '0.20',
-                    'quantity' => 2,
+                    'stones_per_side' => 1,
                 ],
                 [
                     'stone_id' => $sapphire->id,
                     'shape' => 'Redondo',
                     'carats' => '0.15',
-                    'quantity' => 2,
+                    'stones_per_side' => 1,
                 ],
             ],
         ]);
@@ -890,6 +892,7 @@ class ProductTest extends TestCase
             'position' => 'lateral',
             'sort_order' => 1,
             'quantity' => 2,
+            'stones_per_side' => 1,
             'carats' => '0.20',
         ]);
         $this->assertDatabaseHas('product_stones', [
@@ -898,6 +901,7 @@ class ProductTest extends TestCase
             'position' => 'lateral',
             'sort_order' => 2,
             'quantity' => 2,
+            'stones_per_side' => 1,
             'carats' => '0.15',
         ]);
         $this->assertSame(1, $product->variants()->count());
@@ -917,13 +921,13 @@ class ProductTest extends TestCase
                         'stone_id' => $diamond->id,
                         'shape' => 'Redondo',
                         'carats' => '0.20',
-                        'quantity' => 2,
+                        'stones_per_side' => 1,
                     ],
                     [
                         'stone_id' => $diamond->id,
                         'shape' => 'Baguette',
                         'carats' => '0.10',
-                        'quantity' => 2,
+                        'stones_per_side' => 1,
                     ],
                 ],
             ]))
@@ -967,12 +971,12 @@ class ProductTest extends TestCase
                         'id' => $diamondGroup->id,
                         'stone_id' => $diamond->id,
                         'carats' => '0.25',
-                        'quantity' => 3,
+                        'stones_per_side' => 2,
                     ],
                     [
                         'stone_id' => $emerald->id,
                         'carats' => '0.10',
-                        'quantity' => 4,
+                        'stones_per_side' => 2,
                     ],
                 ],
             ]))
@@ -981,7 +985,8 @@ class ProductTest extends TestCase
         $this->assertDatabaseHas('product_stones', [
             'id' => $diamondGroup->id,
             'stone_id' => $diamond->id,
-            'quantity' => 3,
+            'quantity' => 4,
+            'stones_per_side' => 2,
             'carats' => '0.25',
             'sort_order' => 1,
         ]);
@@ -991,6 +996,7 @@ class ProductTest extends TestCase
             'stone_id' => $emerald->id,
             'position' => 'lateral',
             'quantity' => 4,
+            'stones_per_side' => 2,
             'sort_order' => 2,
         ]);
     }
@@ -1019,7 +1025,7 @@ class ProductTest extends TestCase
                 'side_stones' => [[
                     'id' => $otherGroup->id,
                     'stone_id' => $stone->id,
-                    'quantity' => 2,
+                    'stones_per_side' => 1,
                 ]],
             ]),
         );
@@ -1048,6 +1054,66 @@ class ProductTest extends TestCase
             return $loadedProduct->relationLoaded('productStones')
                 && $loadedProduct->productStones->first()->relationLoaded('stone');
         });
+    }
+
+    public function test_product_edit_derives_even_legacy_lateral_quantity_per_side(): void
+    {
+        $admin = User::factory()->create();
+        $category = $this->createCategory();
+        $stone = $this->createStone();
+        $product = Product::create($this->productPayload($category));
+        ProductStone::create([
+            'product_id' => $product->id,
+            'stone_id' => $stone->id,
+            'position' => 'lateral',
+            'quantity' => 4,
+            'stones_per_side' => null,
+        ]);
+
+        $html = $this->actingAs($admin)
+            ->get(route('products.edit', $product))
+            ->assertOk()
+            ->getContent();
+
+        $this->assertStringContainsString(
+            'name="side_stones[0][stones_per_side]" value="2"',
+            $html,
+        );
+        $this->assertDatabaseHas('product_stones', [
+            'product_id' => $product->id,
+            'quantity' => 4,
+            'stones_per_side' => null,
+        ]);
+    }
+
+    public function test_product_edit_leaves_odd_legacy_lateral_quantity_without_a_derived_value(): void
+    {
+        $admin = User::factory()->create();
+        $category = $this->createCategory();
+        $stone = $this->createStone();
+        $product = Product::create($this->productPayload($category));
+        ProductStone::create([
+            'product_id' => $product->id,
+            'stone_id' => $stone->id,
+            'position' => 'lateral',
+            'quantity' => 3,
+            'stones_per_side' => null,
+        ]);
+
+        $html = $this->actingAs($admin)
+            ->get(route('products.edit', $product))
+            ->assertOk()
+            ->getContent();
+
+        $this->assertStringContainsString(
+            'name="side_stones[0][stones_per_side]" value=""',
+            $html,
+        );
+        $this->assertDatabaseHas('product_stones', [
+            'product_id' => $product->id,
+            'quantity' => 3,
+            'stones_per_side' => null,
+        ]);
     }
 
     public function test_product_update_changes_the_central_stone(): void
@@ -1096,7 +1162,7 @@ class ProductTest extends TestCase
         $payload = $this->productPayload($category, null, null, null, [
             'side_stones' => [[
                 'stone_id' => $stone->id,
-                'quantity' => 3,
+                'stones_per_side' => 2,
             ]],
         ]);
 
@@ -1108,7 +1174,8 @@ class ProductTest extends TestCase
             'product_id' => $product->id,
             'stone_id' => $stone->id,
             'position' => 'lateral',
-            'quantity' => 3,
+            'quantity' => 4,
+            'stones_per_side' => 2,
         ]);
     }
 
@@ -1198,7 +1265,7 @@ class ProductTest extends TestCase
         $this->assertDatabaseCount('product_stones', 0);
     }
 
-    public function test_lateral_stone_requires_the_switch_and_quantity_fields(): void
+    public function test_lateral_stone_requires_stones_per_side(): void
     {
         $admin = User::factory()->create();
         $category = $this->createCategory();
@@ -1212,7 +1279,7 @@ class ProductTest extends TestCase
 
         $response = $this->actingAs($admin)->post(route('products.store'), $payload);
 
-        $response->assertSessionHasErrors(['side_stones.0.quantity']);
+        $response->assertSessionHasErrors(['side_stones.0.stones_per_side']);
         $this->assertDatabaseCount('products', 0);
     }
 

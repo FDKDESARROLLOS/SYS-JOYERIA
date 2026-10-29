@@ -40,18 +40,31 @@
 
     if ($sideStones === null) {
         $sideStones = $lateralProductStones
-            ->map(fn ($stone): array => $stone->only([
-                'id',
-                'stone_id',
-                'shape',
-                'carats',
-                'quantity',
-                'origin',
-                'certification',
-                'color',
-                'clarity',
-                'cut',
-            ]))
+            ->map(function ($stone): array {
+                $stonesPerSide = $stone->stones_per_side;
+
+                if ($stonesPerSide === null
+                    && $stone->quantity !== null
+                    && $stone->quantity >= 2
+                    && $stone->quantity % 2 === 0) {
+                    $stonesPerSide = intdiv($stone->quantity, 2);
+                }
+
+                return [
+                    ...$stone->only([
+                        'id',
+                        'stone_id',
+                        'shape',
+                        'carats',
+                        'origin',
+                        'certification',
+                        'color',
+                        'clarity',
+                        'cut',
+                    ]),
+                    'stones_per_side' => $stonesPerSide,
+                ];
+            })
             ->all();
     }
 
@@ -391,9 +404,11 @@
                                         @error("side_stones.{$index}.carats") <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                                     </label>
                                     <label>
-                                        <span class="admin-form-label">Cantidad</span>
-                                        <input type="number" name="side_stones[{{ $index }}][quantity]" value="{{ $sideStone['quantity'] ?? '' }}" min="1" step="1" placeholder="Ej. 2" class="admin-form-input" required />
-                                        @error("side_stones.{$index}.quantity") <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                                        <span class="admin-form-label">Cantidad por lado</span>
+                                        <input type="number" name="side_stones[{{ $index }}][stones_per_side]" value="{{ $sideStone['stones_per_side'] ?? '' }}" min="1" max="50" step="1" placeholder="Ej. 2" class="admin-form-input" data-stones-per-side required />
+                                        <span class="admin-form-help">Se repetirá la misma cantidad en ambos lados.</span>
+                                        <p class="mt-1 text-xs text-[#806441]" data-side-stone-total>Total en ambos lados: — piedras</p>
+                                        @error("side_stones.{$index}.stones_per_side") <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                                     </label>
                                     <label>
                                         <span class="admin-form-label">Origen</span>
@@ -450,8 +465,10 @@
                                     <input type="number" name="side_stones[__INDEX__][carats]" min="0" step="0.01" inputmode="decimal" placeholder="Ej. 0.20" class="admin-form-input" />
                                 </label>
                                 <label>
-                                    <span class="admin-form-label">Cantidad</span>
-                                    <input type="number" name="side_stones[__INDEX__][quantity]" min="1" step="1" placeholder="Ej. 2" class="admin-form-input" required />
+                                    <span class="admin-form-label">Cantidad por lado</span>
+                                    <input type="number" name="side_stones[__INDEX__][stones_per_side]" min="1" max="50" step="1" placeholder="Ej. 2" class="admin-form-input" data-stones-per-side required />
+                                    <span class="admin-form-help">Se repetirá la misma cantidad en ambos lados.</span>
+                                    <p class="mt-1 text-xs text-[#806441]" data-side-stone-total>Total en ambos lados: — piedras</p>
                                 </label>
                                 <label>
                                     <span class="admin-form-label">Origen</span>
@@ -693,9 +710,25 @@
                 if (label) {
                     label.textContent = `Grupo lateral ${index + 1}`;
                 }
+
+                updateSideStoneTotal(group);
             });
 
             sideStonesEmpty?.classList.toggle('hidden', Boolean(sideStonesList?.children.length));
+        };
+
+        const updateSideStoneTotal = (group) => {
+            const input = group.querySelector('[data-stones-per-side]');
+            const total = group.querySelector('[data-side-stone-total]');
+            const stonesPerSide = Number(input?.value);
+
+            if (! total) {
+                return;
+            }
+
+            total.textContent = Number.isInteger(stonesPerSide) && stonesPerSide > 0
+                ? `Total en ambos lados: ${stonesPerSide * 2} piedras`
+                : 'Total en ambos lados: — piedras';
         };
 
         const bindSideStoneGroup = (group) => {
@@ -704,6 +737,10 @@
                 updateSideStoneLabels();
                 updateSummary();
             });
+            group.querySelector('[data-stones-per-side]')?.addEventListener('input', () => {
+                updateSideStoneTotal(group);
+            });
+            updateSideStoneTotal(group);
         };
 
         const addSideStoneGroup = () => {

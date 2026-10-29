@@ -533,7 +533,7 @@ class ProductController extends Controller
             ],
             'side_stones.*.shape' => ['nullable', 'string', 'max:255'],
             'side_stones.*.carats' => ['nullable', 'numeric', 'min:0'],
-            'side_stones.*.quantity' => ['required', 'integer', 'min:1'],
+            'side_stones.*.stones_per_side' => ['required', 'integer', 'min:1', 'max:50'],
             'side_stones.*.origin' => ['nullable', 'string', 'max:255'],
             'side_stones.*.certification' => ['nullable', 'string', 'max:255'],
             'side_stones.*.color' => ['nullable', 'string', 'max:255'],
@@ -892,7 +892,7 @@ class ProductController extends Controller
     {
         $centralStone = $validated['central_stone'] ?? [];
 
-        $this->syncStonePosition($product, 'central', $centralStone, 1);
+        $this->syncStonePosition($product, 'central', $centralStone);
 
         $existingSideStones = $product->productStones()
             ->where('position', 'lateral')
@@ -925,7 +925,7 @@ class ProductController extends Controller
     /**
      * @param  array<string, mixed>  $stoneData
      */
-    private function syncStonePosition(Product $product, string $position, array $stoneData, int $quantity): void
+    private function syncStonePosition(Product $product, string $position, array $stoneData): void
     {
         if (! filled($stoneData['stone_id'] ?? null)) {
             $product->productStones()
@@ -938,7 +938,7 @@ class ProductController extends Controller
         $productStone = $product->productStones()
             ->where('position', $position)
             ->first();
-        $attributes = $this->productStoneAttributes($stoneData, $position, 1, $quantity);
+        $attributes = $this->productStoneAttributes($stoneData, $position, 1);
 
         if ($productStone) {
             $productStone->update($attributes);
@@ -961,15 +961,19 @@ class ProductController extends Controller
         array $stoneData,
         string $position,
         int $sortOrder,
-        ?int $quantity = null,
     ): array {
+        $stonesPerSide = $position === 'lateral'
+            ? (int) $stoneData['stones_per_side']
+            : null;
+
         return [
             'stone_id' => $stoneData['stone_id'],
             'position' => $position,
             'sort_order' => $sortOrder,
             'shape' => $stoneData['shape'] ?? null,
             'carats' => $stoneData['carats'] ?? null,
-            'quantity' => $quantity ?? (int) $stoneData['quantity'],
+            'quantity' => $position === 'lateral' ? $stonesPerSide * 2 : 1,
+            'stones_per_side' => $stonesPerSide,
             'origin' => $stoneData['origin'] ?? null,
             'certification' => $stoneData['certification'] ?? null,
             'color' => $stoneData['color'] ?? null,
