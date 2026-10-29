@@ -9,6 +9,7 @@ use App\Models\InventoryStock;
 use App\Models\Material;
 use App\Models\Product;
 use App\Models\ProductImage;
+use App\Models\ProductStone;
 use App\Models\ProductVariant;
 use App\Models\Size;
 use App\Models\Stone;
@@ -309,12 +310,14 @@ class ProductController extends Controller
     private function validatedProductData(Request $request, ?Product $product = null): array
     {
         $input = $request->all();
+        $usesLegacyStoneInput = ! array_key_exists('stone_groups', $input);
 
-        if (! array_key_exists('side_stones', $input) && is_array($input['side_stone'] ?? null)) {
-            $input['side_stones'] = [$input['side_stone']];
+        if ($usesLegacyStoneInput) {
+            $input['stone_groups'] = $this->legacyStoneGroups($input, $product);
         }
 
-        $input['side_stones'] ??= [];
+        unset($input['central_stone'], $input['side_stones'], $input['side_stone']);
+        $input['stone_groups'] ??= [];
         $salePrice = $input['sale_price'] ?? null;
 
         if ($salePrice === null
@@ -405,12 +408,12 @@ class ProductController extends Controller
             }
         });
         $validator->after(function ($validator) use ($input, $product): void {
-            if ($product === null || ! is_array($input['side_stones'] ?? null)) {
+            if ($product === null || ! is_array($input['stone_groups'] ?? null)) {
                 return;
             }
 
-            foreach ($input['side_stones'] as $index => $sideStone) {
-                $productStoneId = $sideStone['id'] ?? null;
+            foreach ($input['stone_groups'] as $index => $stoneGroup) {
+                $productStoneId = $stoneGroup['id'] ?? null;
 
                 if (! filled($productStoneId)) {
                     continue;
@@ -418,14 +421,92 @@ class ProductController extends Controller
 
                 $belongsToProduct = $product->productStones()
                     ->whereKey((int) $productStoneId)
-                    ->where('position', 'lateral')
                     ->exists();
 
                 if (! $belongsToProduct) {
                     $validator->errors()->add(
-                        "side_stones.{$index}.id",
-                        'La piedra lateral no pertenece a este producto.',
+                        "stone_groups.{$index}.id",
+                        'El grupo de piedras no pertenece a este producto.',
                     );
+                }
+            }
+        });
+        $validator->after(function ($validator) use ($input): void {
+            if (! is_array($input['stone_groups'] ?? null)) {
+                return;
+            }
+
+            $mainGroups = 0;
+
+            foreach ($input['stone_groups'] as $index => $stoneGroup) {
+                $role = $stoneGroup['role'] ?? null;
+                $distribution = $stoneGroup['distribution'] ?? null;
+                $stonesPerSide = $stoneGroup['stones_per_side'] ?? null;
+                $quantity = $stoneGroup['quantity'] ?? null;
+
+                if ($role === ProductStone::ROLE_MAIN) {
+                    $mainGroups++;
+
+                    if ($distribution !== ProductStone::DISTRIBUTION_SINGLE) {
+                        $validator->errors()->add(
+                            "stone_groups.{$index}.distribution",
+                            'La piedra principal debe tener distribución única.',
+                        );
+                    }
+                }
+
+                if ($distribution === ProductStone::DISTRIBUTION_SYMMETRIC
+                    && ! filled($stonesPerSide)) {
+                    $validator->errors()->add(
+                        "stone_groups.{$index}.stones_per_side",
+                        'Indica la cantidad por lado para una distribución simétrica.',
+                    );
+                }
+
+                if ($distribution !== ProductStone::DISTRIBUTION_SYMMETRIC
+                    && filled($stonesPerSide)) {
+                    $validator->errors()->add(
+                        "stone_groups.{$index}.stones_per_side",
+                        'La cantidad por lado solo aplica a distribuciones simétricas.',
+                    );
+                }
+
+                if ($distribution === ProductStone::DISTRIBUTION_DISTRIBUTED
+                    && ! filled($quantity)) {
+                    $validator->errors()->add(
+                        "stone_groups.{$index}.quantity",
+                        'Indica la cantidad total de piedras distribuidas.',
+                    );
+                }
+            }
+
+            if ($mainGroups > 1) {
+                $validator->errors()->add(
+                    'stone_groups',
+                    'Solo puede existir un grupo de piedras principal por producto.',
+                );
+            }
+        });
+        $validator->after(function ($validator) use ($usesLegacyStoneInput): void {
+            if (! $usesLegacyStoneInput) {
+                return;
+            }
+
+            foreach ($validator->errors()->get('stone_groups.*.stone_id') as $messages) {
+                foreach ($messages as $message) {
+                    $validator->errors()->add('central_stone.stone_id', $message);
+                }
+            }
+
+            foreach ($validator->errors()->get('stone_groups.*.stones_per_side') as $messages) {
+                foreach ($messages as $message) {
+                    $validator->errors()->add('side_stones.0.stones_per_side', $message);
+                }
+            }
+
+            foreach ($validator->errors()->get('stone_groups.*.id') as $messages) {
+                foreach ($messages as $message) {
+                    $validator->errors()->add('side_stones.0.id', $message);
                 }
             }
         });
@@ -506,39 +587,27 @@ class ProductController extends Controller
             'featured' => ['sometimes', 'boolean'],
             'is_new' => ['sometimes', 'boolean'],
             'bestseller' => ['sometimes', 'boolean'],
-            'central_stone' => ['nullable', 'array'],
-            'central_stone.stone_id' => [
-                'nullable',
-                'integer',
-                Rule::exists('stones', 'id')
-                    ->where('status', true)
-                    ->whereNull('deleted_at'),
-            ],
-            'central_stone.shape' => ['nullable', 'string', 'max:255'],
-            'central_stone.carats' => ['nullable', 'numeric', 'min:0'],
-            'central_stone.origin' => ['nullable', 'string', 'max:255'],
-            'central_stone.certification' => ['nullable', 'string', 'max:255'],
-            'central_stone.color' => ['nullable', 'string', 'max:255'],
-            'central_stone.clarity' => ['nullable', 'string', 'max:255'],
-            'central_stone.cut' => ['nullable', 'string', 'max:255'],
-            'side_stones' => ['nullable', 'array', 'max:50'],
-            'side_stones.*' => ['required', 'array'],
-            'side_stones.*.id' => ['nullable', 'integer', 'distinct'],
-            'side_stones.*.stone_id' => [
+            'stone_groups' => ['nullable', 'array', 'max:50'],
+            'stone_groups.*' => ['required', 'array'],
+            'stone_groups.*.id' => ['nullable', 'integer', 'distinct'],
+            'stone_groups.*.role' => ['required', Rule::in(ProductStone::roles())],
+            'stone_groups.*.distribution' => ['required', Rule::in(ProductStone::distributions())],
+            'stone_groups.*.shape' => ['nullable', 'string', 'max:255'],
+            'stone_groups.*.carats' => ['nullable', 'numeric', 'min:0'],
+            'stone_groups.*.stones_per_side' => ['nullable', 'integer', 'min:1', 'max:50'],
+            'stone_groups.*.quantity' => ['nullable', 'integer', 'min:1'],
+            'stone_groups.*.origin' => ['nullable', 'string', 'max:255'],
+            'stone_groups.*.certification' => ['nullable', 'string', 'max:255'],
+            'stone_groups.*.color' => ['nullable', 'string', 'max:255'],
+            'stone_groups.*.clarity' => ['nullable', 'string', 'max:255'],
+            'stone_groups.*.cut' => ['nullable', 'string', 'max:255'],
+            'stone_groups.*.stone_id' => [
                 'required',
                 'integer',
                 Rule::exists('stones', 'id')
                     ->where('status', true)
                     ->whereNull('deleted_at'),
             ],
-            'side_stones.*.shape' => ['nullable', 'string', 'max:255'],
-            'side_stones.*.carats' => ['nullable', 'numeric', 'min:0'],
-            'side_stones.*.stones_per_side' => ['required', 'integer', 'min:1', 'max:50'],
-            'side_stones.*.origin' => ['nullable', 'string', 'max:255'],
-            'side_stones.*.certification' => ['nullable', 'string', 'max:255'],
-            'side_stones.*.color' => ['nullable', 'string', 'max:255'],
-            'side_stones.*.clarity' => ['nullable', 'string', 'max:255'],
-            'side_stones.*.cut' => ['nullable', 'string', 'max:255'],
             'images' => ['nullable', 'array'],
             'images.*' => ['image', 'mimes:jpg,jpeg,png,webp', 'max:2048'],
             'image_alt' => ['nullable', 'array'],
@@ -564,6 +633,53 @@ class ProductController extends Controller
             'images.*.mimes' => 'La imagen debe estar en formato JPG, JPEG, PNG o WEBP.',
             'images.*.max' => 'La imagen supera el tamaño máximo permitido de 2 MB.',
         ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $input
+     * @return array<int, array<string, mixed>>
+     */
+    private function legacyStoneGroups(array $input, ?Product $product = null): array
+    {
+        $groups = [];
+        $centralStone = $input['central_stone'] ?? [];
+        $centralProductStone = $product?->productStones()->where('position', 'central')->first();
+
+        if (is_array($centralStone) && filled($centralStone['stone_id'] ?? null)) {
+            $groups[] = [
+                ...$centralStone,
+                'id' => $centralStone['id'] ?? $centralProductStone?->id,
+                'role' => ProductStone::ROLE_MAIN,
+                'distribution' => ProductStone::DISTRIBUTION_SINGLE,
+                'quantity' => 1,
+                'stones_per_side' => null,
+            ];
+        }
+
+        $sideStones = $input['side_stones'] ?? $input['side_stone'] ?? [];
+        $sideStones = is_array($sideStones) && array_key_exists('stone_id', $sideStones)
+            ? [$sideStones]
+            : $sideStones;
+
+        foreach (array_values(is_array($sideStones) ? $sideStones : []) as $sideStone) {
+            $quantity = filled($sideStone['quantity'] ?? null)
+                ? (int) $sideStone['quantity']
+                : null;
+            $stonesPerSide = $sideStone['stones_per_side'] ?? null;
+
+            if ($stonesPerSide === null && $quantity !== null && $quantity >= 2 && $quantity % 2 === 0) {
+                $stonesPerSide = intdiv($quantity, 2);
+            }
+
+            $groups[] = [
+                ...$sideStone,
+                'role' => ProductStone::ROLE_ACCENT,
+                'distribution' => ProductStone::DISTRIBUTION_SYMMETRIC,
+                'stones_per_side' => $stonesPerSide,
+            ];
+        }
+
+        return $groups;
     }
 
     /**
@@ -741,6 +857,18 @@ class ProductController extends Controller
             'collections' => $this->activeCollections(),
             'materials' => $this->activeMaterials(),
             'stones' => $this->activeStones(),
+            'stoneRoles' => [
+                ProductStone::ROLE_MAIN => 'Principal',
+                ProductStone::ROLE_ACCENT => 'Acento',
+                ProductStone::ROLE_HALO => 'Halo',
+                ProductStone::ROLE_PAVE => 'Pavé',
+                ProductStone::ROLE_OTHER => 'Otro',
+            ],
+            'stoneDistributions' => [
+                ProductStone::DISTRIBUTION_SINGLE => 'Única',
+                ProductStone::DISTRIBUTION_SYMMETRIC => 'Simétrica',
+                ProductStone::DISTRIBUTION_DISTRIBUTED => 'Distribuida',
+            ],
             'categorySizes' => $categorySizes,
             'selectedCategoryId' => $categoryId,
             'selectedSubcategoryId' => $subcategoryId,
@@ -890,89 +1018,64 @@ class ProductController extends Controller
      */
     private function syncProductStones(Product $product, array $validated): void
     {
-        $centralStone = $validated['central_stone'] ?? [];
-
-        $this->syncStonePosition($product, 'central', $centralStone);
-
-        $existingSideStones = $product->productStones()
-            ->where('position', 'lateral')
+        $existingProductStones = $product->productStones()
             ->get()
             ->keyBy('id');
-        $submittedSideStoneIds = [];
+        $submittedProductStoneIds = [];
 
-        foreach ($validated['side_stones'] ?? [] as $sortOrder => $sideStone) {
-            $productStone = filled($sideStone['id'] ?? null)
-                ? $existingSideStones->get((int) $sideStone['id'])
+        foreach ($validated['stone_groups'] ?? [] as $sortOrder => $stoneGroup) {
+            $productStone = filled($stoneGroup['id'] ?? null)
+                ? $existingProductStones->get((int) $stoneGroup['id'])
                 : null;
-            $attributes = $this->productStoneAttributes($sideStone, 'lateral', $sortOrder + 1);
+            $attributes = $this->productStoneAttributes($stoneGroup, $sortOrder + 1);
 
             if ($productStone !== null) {
                 $productStone->update($attributes);
-                $submittedSideStoneIds[] = $productStone->getKey();
+                $submittedProductStoneIds[] = $productStone->getKey();
 
                 continue;
             }
 
-            $submittedSideStoneIds[] = $product->productStones()->create($attributes)->getKey();
+            $submittedProductStoneIds[] = $product->productStones()->create($attributes)->getKey();
         }
 
         $product->productStones()
-            ->where('position', 'lateral')
-            ->when($submittedSideStoneIds !== [], fn ($query) => $query->whereNotIn('id', $submittedSideStoneIds))
+            ->when($submittedProductStoneIds !== [], fn ($query) => $query->whereNotIn('id', $submittedProductStoneIds))
             ->delete();
     }
 
     /**
      * @param  array<string, mixed>  $stoneData
      */
-    private function syncStonePosition(Product $product, string $position, array $stoneData): void
+    private function productStoneAttributes(array $stoneData, int $sortOrder): array
     {
-        if (! filled($stoneData['stone_id'] ?? null)) {
-            $product->productStones()
-                ->where('position', $position)
-                ->delete();
-
-            return;
-        }
-
-        $productStone = $product->productStones()
-            ->where('position', $position)
-            ->first();
-        $attributes = $this->productStoneAttributes($stoneData, $position, 1);
-
-        if ($productStone) {
-            $productStone->update($attributes);
-            $product->productStones()
-                ->where('position', $position)
-                ->whereKeyNot($productStone->getKey())
-                ->delete();
-
-            return;
-        }
-
-        $product->productStones()->create($attributes);
-    }
-
-    /**
-     * @param  array<string, mixed>  $stoneData
-     * @return array<string, mixed>
-     */
-    private function productStoneAttributes(
-        array $stoneData,
-        string $position,
-        int $sortOrder,
-    ): array {
-        $stonesPerSide = $position === 'lateral'
+        $role = (string) $stoneData['role'];
+        $distribution = (string) $stoneData['distribution'];
+        $stonesPerSide = $distribution === ProductStone::DISTRIBUTION_SYMMETRIC
             ? (int) $stoneData['stones_per_side']
             : null;
+        $position = match (true) {
+            $role === ProductStone::ROLE_MAIN
+                && $distribution === ProductStone::DISTRIBUTION_SINGLE => 'central',
+            $role === ProductStone::ROLE_ACCENT
+                && $distribution === ProductStone::DISTRIBUTION_SYMMETRIC => 'lateral',
+            default => null,
+        };
+        $quantity = match ($distribution) {
+            ProductStone::DISTRIBUTION_SYMMETRIC => $stonesPerSide * 2,
+            ProductStone::DISTRIBUTION_DISTRIBUTED => (int) $stoneData['quantity'],
+            default => 1,
+        };
 
         return [
             'stone_id' => $stoneData['stone_id'],
             'position' => $position,
+            'role' => $role,
+            'distribution' => $distribution,
             'sort_order' => $sortOrder,
             'shape' => $stoneData['shape'] ?? null,
             'carats' => $stoneData['carats'] ?? null,
-            'quantity' => $position === 'lateral' ? $stonesPerSide * 2 : 1,
+            'quantity' => $quantity,
             'stones_per_side' => $stonesPerSide,
             'origin' => $stoneData['origin'] ?? null,
             'certification' => $stoneData['certification'] ?? null,

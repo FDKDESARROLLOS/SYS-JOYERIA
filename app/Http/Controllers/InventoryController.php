@@ -370,7 +370,6 @@ class InventoryController extends Controller
             'productVariant.product.category.parent:id,name',
             'productVariant.product.baseSize:id,name',
             'productVariant.product.material:id,name',
-            'productVariant.product.productStones.stone:id,name',
             'productVariant.product.images' => fn ($query) => $query
                 ->orderByDesc('is_cover')
                 ->orderBy('sort_order')
@@ -397,7 +396,6 @@ class InventoryController extends Controller
             'inventoryStock.productVariant.stone:id,name',
             'inventoryStock.productVariant.product.baseSize:id,name',
             'inventoryStock.productVariant.product.material:id,name',
-            'inventoryStock.productVariant.product.productStones.stone:id,name',
             'inventoryStock.productVariant.product.category:id,name,parent_id',
             'inventoryStock.productVariant.product.images' => fn ($query) => $query
                 ->orderByDesc('is_cover')
@@ -545,7 +543,7 @@ class InventoryController extends Controller
         $material = $variant->material?->name ?? $product->material?->name;
         $karat = $variant->karat ?? $product->karat;
         $metalColor = $variant->metal_color ?? $product->metal_color;
-        $stone = $variant->stone?->name ?? $product->productStones->first()?->stone?->name;
+        $stone = $variant->stone?->name;
 
         return collect([
             $size !== null ? 'Talla '.$size : null,

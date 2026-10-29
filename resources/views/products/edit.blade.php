@@ -14,8 +14,8 @@
         <x-slot:actions>
             <a href="{{ route('products.index') }}"
                 class="aurea-focus inline-flex items-center justify-center rounded-lg border border-[#dfe2dc] px-4 py-2.5 text-sm font-medium text-[#68736c] hover:border-aurea-gold hover:text-aurea-focus">Cancelar</a>
-            <button type="submit" form="product-form"
-                class="aurea-focus inline-flex items-center justify-center rounded-lg bg-aurea-gold px-4 py-2.5 text-sm font-medium text-white shadow-sm hover:bg-[#9f793f]">Guardar cambios</button>
+            <a href="{{ route('products.variants.index', $product) }}"
+                class="aurea-focus inline-flex items-center justify-center rounded-lg border border-[#dfe2dc] px-4 py-2.5 text-sm font-medium text-[#68736c] hover:border-aurea-gold hover:text-aurea-focus">Gestionar variantes</a>
         </x-slot:actions>
     </x-admin.page-header>
 

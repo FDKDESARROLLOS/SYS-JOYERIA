@@ -377,9 +377,10 @@ class InventoryTest extends TestCase
             ->get(route('inventory.stock'))
             ->assertViewHas('inventoryRows', function ($rows) use ($stock): bool {
                 return $rows->firstWhere('inventory_stock_id', $stock->id)['variant']
-                    === 'Talla 7 / Plata / 14K / Blanco / Zirconia';
+                    === 'Talla 7 / Plata / 14K / Blanco';
             })
-            ->assertSee('Talla 7 / Plata / 14K / Blanco / Zirconia')
+            ->assertSee('Talla 7 / Plata / 14K / Blanco')
+            ->assertDontSee('Zirconia')
             ->assertDontSee('heredado')
             ->assertDontSee('variante base');
     }
@@ -658,7 +659,6 @@ class InventoryTest extends TestCase
                     && $movements->first()->inventoryStock->productVariant->relationLoaded('product')
                     && $movements->first()->inventoryStock->productVariant->product->relationLoaded('baseSize')
                     && $movements->first()->inventoryStock->productVariant->product->relationLoaded('material')
-                    && $movements->first()->inventoryStock->productVariant->product->relationLoaded('productStones')
                     && $movements->first()->user->exists;
             })
             ->assertViewHas('movementRows')

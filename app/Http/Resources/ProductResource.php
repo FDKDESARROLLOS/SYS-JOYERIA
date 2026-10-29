@@ -19,19 +19,16 @@ class ProductResource extends JsonResource
         $product = $this->resource;
         $variants = $product->variants;
         $images = $product->images->filter(fn ($image): bool => $image->hasPublicFile())->values();
-        $centralStone = $product->productStones
-            ->where('position', 'central')
+        $productStones = $product->productStones
             ->sortBy([
                 ['sort_order', 'asc'],
                 ['id', 'asc'],
-            ])
-            ->first();
-        $lateralStones = $product->productStones
-            ->where('position', 'lateral')
-            ->sortBy([
-                ['sort_order', 'asc'],
-                ['id', 'asc'],
-            ])
+            ]);
+        $centralStone = $productStones
+            ->first(fn ($stone): bool => $stone->resolvedRole() === 'main');
+        $lateralStones = $productStones
+            ->filter(fn ($stone): bool => $stone->resolvedRole() === 'accent'
+                && $stone->resolvedDistribution() === 'symmetric')
             ->values();
 
         $variants->each(fn (ProductVariant $variant): ProductVariant => $variant->setRelation('product', $product));
@@ -51,10 +48,13 @@ class ProductResource extends JsonResource
                 : null,
             'images' => ProductImageResource::collection($images),
             'stones' => [
+                'groups' => ProductStoneResource::collection($productStones),
                 'center' => $centralStone !== null
-                    ? new ProductStoneResource($centralStone)
-                    : null,
-                'side' => ProductStoneResource::collection($lateralStones),
+                     ? new ProductStoneResource($centralStone, false)
+                     : null,
+                'side' => $lateralStones->map(
+                    fn ($stone): array => (new ProductStoneResource($stone, false))->toArray($request),
+                )->values(),
             ],
             'price' => CatalogPrice::summary($variants->map(
                 fn ($variant): ?string => $variant->effectivePrice($product),

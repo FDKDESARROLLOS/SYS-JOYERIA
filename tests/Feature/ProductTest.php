@@ -206,8 +206,8 @@ class ProductTest extends TestCase
         $this->assertStringContainsString('action="'.route('products.update', $product).'"', $editHtml);
         $this->assertStringContainsString('<button type="submit" form="product-form"', $createHtml);
         $this->assertStringContainsString('<button type="submit" form="product-form"', $editHtml);
-        $this->assertSame(2, substr_count($createHtml, 'form="product-form"'));
-        $this->assertSame(2, substr_count($editHtml, 'form="product-form"'));
+        $this->assertSame(1, substr_count($createHtml, 'form="product-form"'));
+        $this->assertSame(1, substr_count($editHtml, 'form="product-form"'));
         $this->assertStringContainsString('name="_token"', $createHtml);
         $this->assertStringContainsString('name="_method" value="PATCH"', $editHtml);
         $this->assertStringContainsString('name="category_id"', $createHtml);

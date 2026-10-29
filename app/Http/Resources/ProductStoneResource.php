@@ -8,6 +8,11 @@ use Illuminate\Http\Resources\Json\JsonResource;
 
 class ProductStoneResource extends JsonResource
 {
+    public function __construct($resource, private readonly bool $includeId = true)
+    {
+        parent::__construct($resource);
+    }
+
     /**
      * @return array<string, mixed>
      */
@@ -16,7 +21,9 @@ class ProductStoneResource extends JsonResource
         /** @var ProductStone $productStone */
         $productStone = $this->resource;
 
-        return [
+        $data = [
+            'role' => $productStone->resolvedRole(),
+            'distribution' => $productStone->resolvedDistribution(),
             'name' => $productStone->stone?->name,
             'shape' => $productStone->shape,
             'carats_per_stone' => $productStone->carats,
@@ -29,5 +36,11 @@ class ProductStoneResource extends JsonResource
             'cut' => $productStone->cut,
             'sort_order' => $productStone->sort_order,
         ];
+
+        if ($this->includeId) {
+            $data = ['id' => $productStone->id, ...$data];
+        }
+
+        return $data;
     }
 }

@@ -20,6 +20,8 @@ class ProductStoneTest extends TestCase
             'product_id',
             'stone_id',
             'position',
+            'role',
+            'distribution',
             'sort_order',
             'shape',
             'carats',
